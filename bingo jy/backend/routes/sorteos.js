@@ -587,7 +587,7 @@ router.get('/:id/lista-texto', requireAuth, requireAdmin, (req, res) => {
   const lineaConjunto = (g) => {
     const num = etiquetaConjuntoEmoji(g);
     if (g.disponible) return num;
-    const marca = g.pagado ? ` ${cfg.pagado_emoji}` : ' ⏳';
+    const marca = g.pagado ? ` ${cfg.pagado_emoji}` : ` ${cfg.pendiente_emoji}`;
     return `${num} ${g.nombre || ''}${marca}`;
   };
   // Un regalo nunca está "pendiente de pago" — es gratis, no hay deuda que
@@ -615,7 +615,7 @@ router.get('/:id/pendientes-texto', requireAuth, requireAdmin, (req, res) => {
   const normales = agruparPorConjunto(cartonesConDueno(req.params.id), sorteo.regalo_desde)
     .filter((g) => !g.esRegalo && !g.disponible && !g.pagado);
   const total = normales.length;
-  const lineaConjunto = (g) => `${etiquetaConjuntoEmoji(g)} ${(g.nombre || 'N/A').toUpperCase()} ⏳`;
+  const lineaConjunto = (g) => `${etiquetaConjuntoEmoji(g)} ${(g.nombre || 'N/A').toUpperCase()} ${cfg.pendiente_emoji}`;
   let texto = `${cfg.pendientes_encabezado}\n\n`;
   if (total) texto += `*Pendientes por pagar: ${total} cartones:*\n\n`;
   texto += normales.length ? normales.map(lineaConjunto).join('\n') : 'No hay cartones normales pendientes de pago.';

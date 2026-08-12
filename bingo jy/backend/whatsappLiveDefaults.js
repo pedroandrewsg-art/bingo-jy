@@ -12,4 +12,5 @@ module.exports = {
   regalo_subtitulo: 'CARTONES DE REGALO',
   regalo_emoji: '🎁',
   pagado_emoji: '⭐',
+  pendiente_emoji: '⏳',
 };
