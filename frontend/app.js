@@ -2680,7 +2680,7 @@ function WhatsappLivePanel({ sorteoId }) {
       if (g.disponible) return `${num}${prefijoRegalo}`;
       // Un regalo nunca está "pendiente de pago" — es gratis, no hay deuda
       // que marcar con ⏳. Solo se marca cuando ya se confirmó/entregó.
-      const marca = g.pagado ? ` ${config.pagado_emoji}` : g.esRegalo ? '' : ` ${config.pendiente_emoji}`;
+      const marca = g.pagado ? ` ${config.pagado_emoji}` : '';
       return `${num}${prefijoRegalo} ${g.nombre || ''}${marca}`;
     };
     const normales = conjuntos.filter((g) => !g.esRegalo);
