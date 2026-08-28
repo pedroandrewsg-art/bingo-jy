@@ -1751,34 +1751,46 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
   async function pagarDesdeInput() {
     const { nombre, numeros } = parseVentaInput();
     if (!numeros.length && !nombre) { setAccionMsg('⚠️ Escribe un número de cartón, o un nombre para pagar todos los suyos.'); return; }
-    if (nombre && numeros.length) {
-      // Si viene con nombre Y números, apartar primero lo que todavía esté
-      // disponible (crea al jugador si hace falta) — así "Pagado" con nombre
-      // y números sirve para el pago directo, sin pasar antes por "Apartar".
-      await apiFetch('/cartones/asignar', {
-        method: 'PUT',
-        body: JSON.stringify({ sorteo_id: sorteoId, numeros, nombre }),
-      });
+    try {
+      if (nombre && numeros.length) {
+        // Si viene con nombre Y números, apartar primero lo que todavía esté
+        // disponible (crea al jugador si hace falta) — así "Pagado" con nombre
+        // y números sirve para el pago directo, sin pasar antes por "Apartar".
+        await apiFetch('/cartones/asignar', {
+          method: 'PUT',
+          body: JSON.stringify({ sorteo_id: sorteoId, numeros, nombre }),
+        });
+      }
+      await marcarPagado(numeros.length ? { numeros } : { nombre });
+      setVentaInput('');
+    } catch (e) {
+      // Sin este catch, si /asignar fallaba (ej. corte de red del celular a
+      // mitad de la petición) la función se cortaba en silencio: nunca
+      // llegaba a marcarPagado y el admin no veía ningún mensaje de error,
+      // como si el botón "Pagado" simplemente no hubiera hecho nada.
+      setAccionMsg(`❌ ${e.message}`);
     }
-    await marcarPagado(numeros.length ? { numeros } : { nombre });
-    setVentaInput('');
   }
 
   async function apartarDesdeInput() {
     const { nombre, numeros } = parseVentaInput();
     if (!numeros.length) { setAccionMsg('⚠️ Escribe al menos un número de cartón.'); return; }
     if (!nombre) { setAccionMsg('⚠️ Para apartar, escribe el nombre antes de los números (Ej: Pedro 15, 20).'); return; }
-    const d = await apiFetch('/cartones/asignar', {
-      method: 'PUT',
-      body: JSON.stringify({ sorteo_id: sorteoId, numeros, nombre }),
-    });
-    let msg = d.asignados.length ? `📌 Apartado para ${d.jugador.nombre}: ${d.asignados.join(', ')}` : '';
-    if (d.asignadosRegalo?.length) msg += ` · 🎁 De regalo: ${d.asignadosRegalo.join(', ')}`;
-    if (d.yaOcupados.length) msg += ` · ⚠️ Ya estaban ocupados: ${d.yaOcupados.join(', ')}`;
-    if (d.noEncontrados.length) msg += ` · ❌ No existen: ${d.noEncontrados.join(', ')}`;
-    setAccionMsg(msg);
-    setVentaInput('');
-    loadAll();
+    try {
+      const d = await apiFetch('/cartones/asignar', {
+        method: 'PUT',
+        body: JSON.stringify({ sorteo_id: sorteoId, numeros, nombre }),
+      });
+      let msg = d.asignados.length ? `📌 Apartado para ${d.jugador.nombre}: ${d.asignados.join(', ')}` : '';
+      if (d.asignadosRegalo?.length) msg += ` · 🎁 De regalo: ${d.asignadosRegalo.join(', ')}`;
+      if (d.yaOcupados.length) msg += ` · ⚠️ Ya estaban ocupados: ${d.yaOcupados.join(', ')}`;
+      if (d.noEncontrados.length) msg += ` · ❌ No existen: ${d.noEncontrados.join(', ')}`;
+      setAccionMsg(msg);
+      setVentaInput('');
+      loadAll();
+    } catch (e) {
+      setAccionMsg(`❌ ${e.message}`);
+    }
   }
 
   async function liberarDesdeInput() {
