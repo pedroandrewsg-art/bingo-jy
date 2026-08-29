@@ -2104,92 +2104,6 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
 }
 
 // ===========================================================================
-// ADMIN · MÓDULO DE CARTONES
-// ===========================================================================
-function AdminCartones() {
-  const [sorteos, setSorteos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState(null);
-  const [cartones, setCartones] = useState([]);
-  const [loadingCartones, setLoadingCartones] = useState(false);
-
-  useEffect(() => {
-    apiFetch('/sorteos').then((d) => {
-      setSorteos(d.sorteos);
-      if (d.sorteos.length) setSelectedId(d.sorteos[0].id);
-    }).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedId) { setCartones([]); return; }
-    setLoadingCartones(true);
-    apiFetch('/cartones?sorteo_id=' + selectedId).then((d) => setCartones(d.cartones)).finally(() => setLoadingCartones(false));
-  }, [selectedId]);
-
-  const disponibles = cartones.filter((c) => c.estado === 'disponible');
-  const apartados = cartones.filter((c) => c.estado === 'vendido');
-  const pagados = cartones.filter((c) => c.estado === 'pagado');
-  const sorteoSel = sorteos.find((s) => s.id === selectedId);
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-bold text-rose-100">Cartones</h2>
-
-      {loading ? <Spinner /> : !sorteos.length ? (
-        <Card><span className="text-slate-500 text-sm">Todavía no hay sorteos creados. Los cartones se generan automáticamente al crear un sorteo (pestaña Sorteos).</span></Card>
-      ) : (
-        <>
-          <Card>
-            <Label>Sorteo</Label>
-            <Select value={selectedId || ''} onChange={(e) => setSelectedId(Number(e.target.value))}>
-              {sorteos.map((s) => (
-                <option key={s.id} value={s.id}>#{s.id} · {s.fecha_hora} · {s.color} · {s.totalCartones} cartones</option>
-              ))}
-            </Select>
-          </Card>
-
-          {sorteoSel && (
-            <Card>
-              <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
-                <Badge>Sorteo #{sorteoSel.id}</Badge>
-                <span className="text-slate-400">{sorteoSel.fecha_hora}</span>
-                <Badge>{sorteoSel.color}</Badge>
-                <span className="text-slate-300 font-semibold">{sorteoSel.totalCartones} cartas en total</span>
-              </div>
-              {loadingCartones ? <Spinner /> : (
-                <div className="grid md:grid-cols-3 gap-6">
-                  <div>
-                    <h3 className="font-bold text-emerald-300 mb-2">Disponibles ({disponibles.length})</h3>
-                    <div className="flex flex-wrap gap-2 max-h-[420px] overflow-y-auto">
-                      {disponibles.map((c) => <Badge key={c.id} tone="green">#{c.numero}</Badge>)}
-                      {!disponibles.length && <span className="text-slate-500 text-sm">Sin cartones disponibles.</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-amber-300 mb-2">Apartados, sin pago verificado ({apartados.length})</h3>
-                    <div className="flex flex-wrap gap-2 max-h-[420px] overflow-y-auto">
-                      {apartados.map((c) => <Badge key={c.id} tone="yellow">#{c.numero}{c.owner_nombre ? ' · ' + c.owner_nombre : ''}</Badge>)}
-                      {!apartados.length && <span className="text-slate-500 text-sm">Sin cartones apartados.</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-rose-300 mb-2">Pagados ⭐ ({pagados.length})</h3>
-                    <div className="flex flex-wrap gap-2 max-h-[420px] overflow-y-auto">
-                      {pagados.map((c) => <Badge key={c.id}>#{c.numero}{c.owner_nombre ? ' · ' + c.owner_nombre : ''}</Badge>)}
-                      {!pagados.length && <span className="text-slate-500 text-sm">Sin cartones pagados.</span>}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ===========================================================================
 // ADMIN · MÓDULO DE VENTAS Y GANANCIAS
 // ===========================================================================
 function AdminVentas() {
@@ -3225,7 +3139,6 @@ function AdminApp() {
   const [tab, setTab] = useState('sorteos');
   const tabs = [
     { key: 'sorteos', label: 'Sorteos', icon: '🎯' },
-    { key: 'cartones', label: 'Cartones', icon: '🎫' },
     { key: 'catalogos', label: 'Cartones Personalizados', icon: '🖼️' },
     { key: 'ventas', label: 'Ventas', icon: '💹' },
     { key: 'jugadores', label: 'Jugadores', icon: '👥' },
@@ -3235,7 +3148,6 @@ function AdminApp() {
   return (
     <Shell title="Panel de Administración" tabs={tabs} active={tab} onTab={setTab} right={<TopUserMenu />}>
       {tab === 'sorteos' && <AdminSorteos />}
-      {tab === 'cartones' && <AdminCartones />}
       {tab === 'catalogos' && <AdminCatalogos />}
       {tab === 'ventas' && <AdminVentas />}
       {tab === 'jugadores' && <AdminJugadores />}
