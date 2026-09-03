@@ -2330,6 +2330,76 @@ function AdminJugadores() {
   );
 }
 
+// Temporizador de liberación automática de cartones pendientes de pago: el
+// admin fija cuántos minutos esperar desde que un cartón queda apartado
+// (estado 'vendido', sin pago verificado) antes de devolverlo solo a
+// 'disponible' si nadie confirmó el pago -- ver backend/liberarPendientes.js
+// (corre en segundo plano cada 30s, no depende de que nadie tenga la app
+// abierta). 0/vacío = desactivado, como viene por defecto.
+function LiberacionPendientesConfig() {
+  const [minutos, setMinutos] = useState('');
+  const [minutosGuardado, setMinutosGuardado] = useState(0);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiFetch('/settings/liberacion-pendientes')
+      .then((d) => { setMinutos(String(d.minutos || '')); setMinutosGuardado(d.minutos || 0); })
+      .catch(() => {})
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar() {
+    const n = minutos === '' ? 0 : Math.trunc(Number(minutos));
+    if (!Number.isFinite(n) || n < 0) { setError('Ingresá un número de minutos válido (0 o mayor)'); return; }
+    setGuardando(true);
+    setError('');
+    setMsg('');
+    try {
+      await apiFetch('/settings/liberacion-pendientes', { method: 'PUT', body: JSON.stringify({ minutos: n }) });
+      setMinutos(String(n || ''));
+      setMinutosGuardado(n);
+      setMsg('Guardado');
+    } catch (e) { setError(e.message); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <Card className="space-y-3 max-w-xl">
+      <div>
+        <Label>⏱️ Liberar cartones pendientes de pago automáticamente</Label>
+        <p className="text-xs text-slate-500 mt-1">
+          Cuando un cartón queda apartado ("vendido", pago sin confirmar) y pasan estos minutos sin que vos confirmes el pago, el cartón vuelve solo a "disponible" para que otro lo pueda comprar. Dejá en 0 para desactivarlo (nunca libera solo, como hasta ahora).
+        </p>
+      </div>
+      {!cargando && (
+        <div className="flex items-end gap-3">
+          <div className="w-40">
+            <Label>Minutos de espera</Label>
+            <Input
+              type="number" min="0" step="1"
+              value={minutos}
+              onChange={(e) => setMinutos(e.target.value)}
+              placeholder="0 = desactivado"
+            />
+          </div>
+          <Button disabled={guardando}
+            onClick={guardar}>{guardando ? 'Guardando...' : 'Guardar'}</Button>
+        </div>
+      )}
+      {msg && <div className="text-sm text-emerald-400">{msg}</div>}
+      {error && <div className="text-sm text-red-400">{error}</div>}
+      <p className="text-xs text-slate-500">
+        {minutosGuardado > 0
+          ? `Activo: los cartones sin pago verificado se liberan solos a los ${minutosGuardado} minuto(s) de apartados.`
+          : 'Desactivado: los cartones apartados quedan esperando indefinidamente hasta que vos los liberes o confirmes el pago a mano.'}
+      </p>
+    </Card>
+  );
+}
+
 // ===========================================================================
 // LAYOUT ADMIN
 // ===========================================================================
@@ -2518,6 +2588,8 @@ function AdminConfiguracion() {
           <span className="text-sm font-semibold text-slate-200">{bloqueoCartonesPendientes ? 'Activado' : 'Desactivado'}</span>
         </button>
       </Card>
+
+      <LiberacionPendientesConfig />
 
       <Card className="space-y-3 max-w-xl">
         <Label>Usuarios administradores</Label>

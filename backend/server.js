@@ -17,6 +17,7 @@ const catalogosImagenesRoutes = require('./routes/catalogosImagenes');
 const settingsRoutes = require('./routes/settings');
 const logsRoutes = require('./routes/logs');
 const { attachSockets } = require('./sockets');
+const { iniciarLiberadorPendientes } = require('./liberarPendientes');
 const { r2, BUCKET, GetObjectCommand } = require('./r2');
 
 const app = express();
@@ -72,6 +73,7 @@ process.on('uncaughtException', (err) => {
 });
 
 attachSockets(io);
+iniciarLiberadorPendientes(io);
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

@@ -257,6 +257,17 @@ if (!cartonesInfo.some((c) => c.name === 'letra')) {
   db.exec("ALTER TABLE cartones ADD COLUMN letra TEXT");
 }
 
+// Migración incremental: `reservado_en` en `cartones` — momento exacto en
+// que un cartón pasó a 'vendido' (apartado, ver routes/cartones.js#asignar),
+// usado por liberarPendientes.js para saber cuánto tiempo lleva esperando su
+// verificación de pago. NULL a propósito para cartones ya 'vendido' antes de
+// esta migración (nunca se auto-liberan retroactivamente sin una fecha real
+// de referencia) — solo los apartados DESPUÉS de este cambio quedan sujetos
+// al temporizador.
+if (!cartonesInfo.some((c) => c.name === 'reservado_en')) {
+  db.exec("ALTER TABLE cartones ADD COLUMN reservado_en TEXT");
+}
+
 // Backfill: sorteos creados antes de soportar múltiples figuras no tienen
 // filas en sorteo_patrones. Se les asigna su única figura original al 100%.
 const sorteosSinFiguras = db
@@ -283,6 +294,14 @@ if (userCount === 0) {
 const whatsappSetting = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_link'").get();
 if (!whatsappSetting) {
   db.prepare("INSERT INTO settings (key, value) VALUES ('whatsapp_link', '')").run();
+}
+
+// Minutos de espera antes de liberar automáticamente un cartón 'vendido'
+// (apartado, sin pago verificado) — ver liberarPendientes.js. '0' (default)
+// = desactivado, nunca libera solo.
+const liberacionSetting = db.prepare("SELECT value FROM settings WHERE key = 'liberacion_pendientes_minutos'").get();
+if (!liberacionSetting) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('liberacion_pendientes_minutos', '0')").run();
 }
 
 // Seed de los textos/emoji configurables del módulo "WhatsApp Live" — solo si

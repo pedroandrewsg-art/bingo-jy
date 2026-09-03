@@ -56,7 +56,7 @@ router.post('/lote', requireAuth, requireAdmin, (req, res) => {
 router.put('/disponible', requireAuth, requireAdmin, (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Selecciona al menos un cartón' });
-  const stmt = db.prepare(`UPDATE cartones SET estado = 'disponible', owner_id = NULL, marcados = '[]' WHERE id = ?`);
+  const stmt = db.prepare(`UPDATE cartones SET estado = 'disponible', owner_id = NULL, reservado_en = NULL, marcados = '[]' WHERE id = ?`);
   const tx = db.transaction((ids) => ids.forEach((id) => stmt.run(id)));
   tx(ids);
   registrarLog(req, 'cartones', 'Liberó cartón(es) por lote', `${ids.length} cartón(es)`);
@@ -158,7 +158,7 @@ router.put('/liberar', requireAuth, requireAdmin, (req, res) => {
   }
 
   const tx = db.transaction(() => {
-    const stmt = db.prepare(`UPDATE cartones SET estado = 'disponible', owner_id = NULL, marcados = '[]' WHERE id = ?`);
+    const stmt = db.prepare(`UPDATE cartones SET estado = 'disponible', owner_id = NULL, reservado_en = NULL, marcados = '[]' WHERE id = ?`);
     rows.forEach((c) => stmt.run(c.id));
   });
   tx();
@@ -233,7 +233,10 @@ router.put('/asignar', requireAuth, requireAdmin, (req, res) => {
     const monto = +(sorteo.costo * gruposNormales.size).toFixed(2);
 
     const tx = db.transaction(() => {
-      const stmt = db.prepare(`UPDATE cartones SET estado = 'vendido', owner_id = ? WHERE id = ?`);
+      // `reservado_en` marca el instante exacto del apartado -- lo usa
+      // liberarPendientes.js para saber cuánto tiempo lleva esperando su
+      // verificación de pago (ver settings.liberacion_pendientes_minutos).
+      const stmt = db.prepare(`UPDATE cartones SET estado = 'vendido', owner_id = ?, reservado_en = datetime('now') WHERE id = ?`);
       asignables.forEach((c) => stmt.run(jugador.id, c.id));
       const numTx = `TX-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
       db.prepare(
