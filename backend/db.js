@@ -172,6 +172,25 @@ CREATE TABLE IF NOT EXISTS tablero_marcas (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tablero_marcas_unico ON tablero_marcas(jugador_id, sorteo_id);
 
+-- Suscripciones a notificaciones push (Web Push) por dispositivo del
+-- jugador -- ver recordatorioPago.js, que envía el recordatorio de pago
+-- (settings.recordatorio_pago_activo) a cada jugador con cartones
+-- pendientes que tenga al menos una suscripción acá. Un mismo jugador
+-- puede tener varias filas (un celular, una compu, etc.) -- endpoint es
+-- único por navegador/dispositivo, así resuscribirse desde el mismo
+-- actualiza la fila en vez de duplicarla. A diferencia de BINGOJULIETA,
+-- acá el jugador no tiene sesión/login (ver routes/push.js) -- se
+-- identifica por jugador_id resuelto en la Consulta Pública de Cartas.
+CREATE TABLE IF NOT EXISTS push_subscripciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jugador_id INTEGER NOT NULL REFERENCES jugadores(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_push_subs_jugador ON push_subscripciones(jugador_id);
+
 -- Catálogo persistente de cartones personalizados: un set de imágenes ya
 -- diseñadas (ej. cartones físicos escaneados/diagramados), numeradas en
 -- orden. El admin lo crea pegando la lista de links (uno por línea) en
@@ -302,6 +321,17 @@ if (!whatsappSetting) {
 const liberacionSetting = db.prepare("SELECT value FROM settings WHERE key = 'liberacion_pendientes_minutos'").get();
 if (!liberacionSetting) {
   db.prepare("INSERT INTO settings (key, value) VALUES ('liberacion_pendientes_minutos', '0')").run();
+}
+
+// Recordatorio de pago (notificación push + voz) a jugadores con cartones
+// pendientes -- ver backend/recordatorioPago.js. '0' (default) = desactivado.
+const recordatorioActivoSetting = db.prepare("SELECT value FROM settings WHERE key = 'recordatorio_pago_activo'").get();
+if (!recordatorioActivoSetting) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('recordatorio_pago_activo', '0')").run();
+}
+const recordatorioTextoSetting = db.prepare("SELECT value FROM settings WHERE key = 'recordatorio_pago_texto'").get();
+if (!recordatorioTextoSetting) {
+  db.prepare("INSERT INTO settings (key, value) VALUES ('recordatorio_pago_texto', 'Recuerde enviar el pago de sus cartones')").run();
 }
 
 // Seed de los textos/emoji configurables del módulo "WhatsApp Live" — solo si

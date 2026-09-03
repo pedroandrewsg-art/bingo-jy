@@ -50,6 +50,16 @@ function money(n) {
   return 'Bs ' + Number(n || 0).toFixed(2);
 }
 
+// Convierte la clave pública VAPID (base64url, la que devuelve el backend)
+// al Uint8Array que pide PushManager.subscribe -- transformación estándar,
+// documentada en cualquier guía de Web Push (no es específica de este repo).
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
 // ---------------------------------------------------------------------------
 // Auth context
 // ---------------------------------------------------------------------------
@@ -624,6 +634,94 @@ async function descargarCarton(cartones, grupo, sorteoColor) {
   descargarCartaPNG(cartones, grupo, sorteoColor);
 }
 
+// Recordatorio de pago: mientras el jugador identificado tenga al menos un
+// cartón pendiente (estado 'vendido', sin verificar) en cualquier sorteo Y
+// el admin haya activado el recordatorio (ver RecordatorioPagoConfig, en el
+// Panel Sorteador), ofrece activar notificaciones push nativas -- llegan
+// aunque el jugador tenga el navegador minimizado o cerrado. Sin voz
+// hablada a propósito: este repo no tiene una "sala de juego" con sesión
+// persistente (el jugador solo pasa por la Consulta Pública de Cartas), así
+// que no hay una pantalla estable donde tenga sentido un aviso hablado
+// repitiéndose cada minuto.
+//
+// A diferencia de BINGOJULIETA, acá el jugador no tiene sesión/login: este
+// componente solo puede montarse una vez que la Consulta Pública de Cartas
+// (ConsultaCartonesPanel, más abajo) identificó a alguien por número o por
+// nombre y resolvió su jugador_id -- por eso recibe `jugadorId` por props
+// en vez de sacarlo de un AuthContext. Aun así es autocontenido para ese
+// jugador ya identificado: pide su propia config y su propio estado de
+// pendientes, no depende de qué más haya cargado el panel que lo llama.
+function RecordatorioPago({ jugadorId }) {
+  const [config, setConfig] = useState(null); // { activo, texto }
+  const [tienePendientes, setTienePendientes] = useState(false);
+  const [permiso, setPermiso] = useState(() => (typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'));
+  const [activando, setActivando] = useState(false);
+  const [errorActivar, setErrorActivar] = useState('');
+
+  useEffect(() => {
+    apiFetch('/settings/recordatorio-pago/publico').then(setConfig).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!jugadorId) { setTienePendientes(false); return; }
+    let cancelado = false;
+    const chequear = () => {
+      apiFetch('/cartones/tiene-pendientes/' + jugadorId).then((d) => {
+        if (!cancelado) setTienePendientes(!!d.pendiente);
+      }).catch(() => {});
+    };
+    chequear();
+    const onCambio = () => chequear();
+    socket.on('cartones-actualizados', onCambio);
+    socket.on('cartones-vendidos', onCambio);
+    return () => {
+      cancelado = true;
+      socket.off('cartones-actualizados', onCambio);
+      socket.off('cartones-vendidos', onCambio);
+    };
+  }, [jugadorId]);
+
+  async function activarPush() {
+    if (activando) return;
+    setActivando(true);
+    setErrorActivar('');
+    try {
+      const perm = await Notification.requestPermission();
+      setPermiso(perm);
+      if (perm !== 'granted') return;
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const { publicKey } = await apiFetch('/push/vapid-public-key');
+      if (!publicKey) { setErrorActivar('El servidor todavía no tiene notificaciones configuradas'); return; }
+      const existente = await reg.pushManager.getSubscription();
+      const sub = existente || await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      await apiFetch('/push/suscribir', { method: 'POST', body: JSON.stringify({ jugador_id: jugadorId, ...sub.toJSON() }) });
+    } catch (e) {
+      setErrorActivar('No se pudo activar: ' + e.message);
+    } finally {
+      setActivando(false);
+    }
+  }
+
+  if (!config?.activo || !tienePendientes) return null;
+
+  return (
+    <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/10 px-4 py-3 mb-4 flex items-center justify-between gap-3 flex-wrap">
+      <div className="text-sm text-amber-200">⏰ {config.texto}</div>
+      {permiso === 'granted' && <div className="text-xs text-amber-300/80 shrink-0">🔔 Notificaciones activadas</div>}
+      {permiso === 'denied' && <div className="text-xs text-amber-300/80 shrink-0">🔕 Notificaciones bloqueadas por el navegador</div>}
+      {permiso !== 'granted' && permiso !== 'denied' && permiso !== 'unsupported' && (
+        <Button variant="ghost" className="!py-1 !px-3 text-xs shrink-0" disabled={activando} onClick={activarPush}>
+          {activando ? 'Activando...' : '🔔 Activar notificación'}
+        </Button>
+      )}
+      {errorActivar && <div className="text-xs text-red-400 w-full">{errorActivar}</div>}
+    </div>
+  );
+}
+
 // Consulta pública de una carta/cartón: cualquiera que sepa el número puede
 // verla y descargarla, sin login ni datos personales. Si el sorteo vende por
 // combo, se busca por número de carta y se muestra/descarga completa (todos
@@ -798,6 +896,7 @@ function ConsultaCartonesPanel({ onVolver }) {
 
       {resultado && (
         <div className="space-y-3">
+          {resultado.cartones[0].owner_id && <RecordatorioPago jugadorId={resultado.cartones[0].owner_id} />}
           <div className="text-sm text-slate-300 text-center flex items-center justify-center gap-2 flex-wrap">
             Sorteo #{resultado.sorteo.id} · {resultado.sorteo.color} · {resultado.sorteo.fecha_hora?.replace('T', ' ')}
             <Badge tone={resultado.sorteo.estatus === 'en_juego' ? 'yellow' : resultado.sorteo.estatus === 'finalizado' ? 'gray' : 'green'}>{resultado.sorteo.estatus}</Badge>
@@ -843,6 +942,7 @@ function ConsultaCartonesPanel({ onVolver }) {
 
       {personaElegida && sorteoNombre && (
         <div className="space-y-3">
+          <RecordatorioPago jugadorId={personaElegida.jugador_id} />
           <div className="text-sm text-slate-300 text-center flex items-center justify-center gap-2 flex-wrap">
             Sorteo #{sorteoNombre.id} · {sorteoNombre.color} · {sorteoNombre.fecha_hora?.replace('T', ' ')}
             <Badge tone={sorteoNombre.estatus === 'en_juego' ? 'yellow' : sorteoNombre.estatus === 'finalizado' ? 'gray' : 'green'}>{sorteoNombre.estatus}</Badge>
@@ -2050,6 +2150,7 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
       <WhatsappLivePanel sorteoId={sorteoId} />
 
       <LiberacionPendientesConfig />
+      <RecordatorioPagoConfig />
 
       <Card>
         <h3 className="font-bold text-rose-100 mb-3">Registro de Cartas Vendidas ({cartonesPorGrupo.size})</h3>
@@ -2398,6 +2499,80 @@ function LiberacionPendientesConfig() {
           ? `Activo: los cartones sin pago verificado se liberan solos a los ${minutosGuardado} minuto(s) de apartados.`
           : 'Desactivado: los cartones apartados quedan esperando indefinidamente hasta que vos los liberes o confirmes el pago a mano.'}
       </p>
+    </Card>
+  );
+}
+
+// Recordatorio de pago: mientras un jugador tenga cartones pendientes, le
+// llega el texto de acá como notificación nativa, aunque tenga el navegador
+// minimizado o haya cambiado de app (ver RecordatorioPago en
+// ConsultaCartonesPanel, y backend/recordatorioPago.js que manda las
+// notificaciones). Sin voz: este repo no tiene sala de juego con sesión
+// persistente. Interruptor global — afecta a todos los sorteos a la vez,
+// no uno por uno.
+function RecordatorioPagoConfig() {
+  const [activo, setActivo] = useState(false);
+  const [texto, setTexto] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiFetch('/settings/recordatorio-pago')
+      .then((d) => { setActivo(!!d.activo); setTexto(d.texto || ''); })
+      .catch(() => {})
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar(nuevoActivo) {
+    if (nuevoActivo && !texto.trim()) { setError('Escribí el texto del recordatorio'); return; }
+    setGuardando(true);
+    setError('');
+    setMsg('');
+    try {
+      const d = await apiFetch('/settings/recordatorio-pago', { method: 'PUT', body: JSON.stringify({ activo: nuevoActivo, texto }) });
+      setActivo(d.activo);
+      setTexto(d.texto);
+      setMsg('Guardado');
+    } catch (e) { setError(e.message); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <Card className="space-y-3 max-w-xl">
+      <div>
+        <Label>⏰ Recordatorio de pago a jugadores con cartones pendientes</Label>
+        <p className="text-xs text-slate-500 mt-1">
+          Mientras un jugador tenga cartones "vendido" (pago sin confirmar), le mandamos este aviso como notificación del sistema — funciona aunque haya cerrado la Consulta de Cartas o minimizado el navegador. El jugador tiene que aceptar el permiso de notificaciones la primera vez.
+        </p>
+      </div>
+      {!cargando && (
+        <>
+          <div>
+            <Label>Texto del recordatorio</Label>
+            <Input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Recuerde enviar el pago de sus cartones" />
+          </div>
+          <button
+            type="button"
+            disabled={guardando}
+            onClick={() => guardar(!activo)}
+            className={`w-full flex items-center gap-3 text-left rounded-xl border-2 py-2.5 px-3 transition disabled:opacity-60 ${activo ? 'border-bingoaccent bg-bingopurple/10' : 'border-slate-700 hover:border-slate-600'}`}
+          >
+            <span className={`shrink-0 w-11 h-6 rounded-full relative transition ${activo ? 'bg-bingoaccent' : 'bg-slate-700'}`}>
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${activo ? 'left-5' : 'left-0.5'}`} />
+            </span>
+            <span className="text-sm font-semibold text-slate-200">{activo ? 'Activado' : 'Desactivado'}</span>
+          </button>
+          {texto.trim() && (
+            <Button variant="ghost" className="!py-1.5 text-xs" disabled={guardando} onClick={() => guardar(activo)}>
+              {guardando ? 'Guardando...' : 'Guardar texto'}
+            </Button>
+          )}
+        </>
+      )}
+      {msg && <div className="text-sm text-emerald-400">{msg}</div>}
+      {error && <div className="text-sm text-red-400">{error}</div>}
     </Card>
   );
 }

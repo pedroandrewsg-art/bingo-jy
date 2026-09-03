@@ -363,6 +363,21 @@ router.get('/consulta-nombre', (req, res) => {
   });
 });
 
+// Consulta pública (sin login) usada por RecordatorioPago en el frontend:
+// una vez que la Consulta Pública de Cartas identifica al jugador (por
+// número o por nombre, ver /consulta y /consulta-nombre arriba, que ya
+// resuelven un jugador_id sin autenticación), este endpoint le permite
+// chequear cada minuto -- sin repetir esa búsqueda -- si sigue teniendo
+// algún cartón 'vendido' (pago sin verificar) en CUALQUIER sorteo, mismo
+// criterio global que usa backend/recordatorioPago.js para decidir a quién
+// avisar. Solo devuelve un booleano, no expone qué cartones son.
+router.get('/tiene-pendientes/:jugadorId', (req, res) => {
+  const row = db
+    .prepare(`SELECT 1 FROM cartones WHERE owner_id = ? AND estado = 'vendido' LIMIT 1`)
+    .get(req.params.jugadorId);
+  res.json({ pendiente: !!row });
+});
+
 // Cartones de un jugador específico (admin)
 router.get('/jugador/:jugadorId', requireAuth, requireAdmin, (req, res) => {
   const rows = db

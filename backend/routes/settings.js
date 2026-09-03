@@ -77,6 +77,36 @@ router.put('/liberacion-pendientes', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true, minutos });
 });
 
+// Recordatorio de pago (notificación push + voz, ver
+// backend/recordatorioPago.js y frontend RecordatorioPago) — activo/texto.
+// `/publico` es sin login: acá el jugador nunca tiene sesión (se identifica
+// desde la Consulta Pública de Cartas), así que a diferencia del resto de
+// "/recordatorio-pago" no lleva requireAuth -- necesita esto para saber si
+// tiene que mostrar el aviso, y el texto exacto para la voz.
+router.get('/recordatorio-pago', requireAuth, requireAdmin, (req, res) => {
+  res.json({
+    activo: getSetting('recordatorio_pago_activo') === '1',
+    texto: getSetting('recordatorio_pago_texto') || 'Recuerde enviar el pago de sus cartones',
+  });
+});
+
+router.get('/recordatorio-pago/publico', (req, res) => {
+  res.json({
+    activo: getSetting('recordatorio_pago_activo') === '1',
+    texto: getSetting('recordatorio_pago_texto') || 'Recuerde enviar el pago de sus cartones',
+  });
+});
+
+router.put('/recordatorio-pago', requireAuth, requireAdmin, (req, res) => {
+  const { activo, texto } = req.body;
+  if (typeof activo !== 'boolean') return res.status(400).json({ error: 'Falta indicar activo (true/false)' });
+  const textoLimpio = typeof texto === 'string' ? texto.trim().slice(0, 200) : '';
+  if (activo && !textoLimpio) return res.status(400).json({ error: 'Escribí el texto del recordatorio' });
+  setSetting('recordatorio_pago_activo', activo ? '1' : '0');
+  if (textoLimpio) setSetting('recordatorio_pago_texto', textoLimpio);
+  res.json({ ok: true, activo, texto: textoLimpio || getSetting('recordatorio_pago_texto') });
+});
+
 router.put('/whatsapp', requireAuth, requireAdmin, (req, res) => {
   const link = (req.body.link || '').trim();
   if (!link) return res.status(400).json({ error: 'Ponle un link al grupo de WhatsApp' });
