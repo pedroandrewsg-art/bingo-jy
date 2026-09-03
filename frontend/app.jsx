@@ -2049,6 +2049,8 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
 
       <WhatsappLivePanel sorteoId={sorteoId} />
 
+      <LiberacionPendientesConfig />
+
       <Card>
         <h3 className="font-bold text-rose-100 mb-3">Registro de Cartas Vendidas ({cartonesPorGrupo.size})</h3>
         {(
@@ -2588,8 +2590,6 @@ function AdminConfiguracion() {
           <span className="text-sm font-semibold text-slate-200">{bloqueoCartonesPendientes ? 'Activado' : 'Desactivado'}</span>
         </button>
       </Card>
-
-      <LiberacionPendientesConfig />
 
       <Card className="space-y-3 max-w-xl">
         <Label>Usuarios administradores</Label>
