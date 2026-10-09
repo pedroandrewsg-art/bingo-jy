@@ -3257,7 +3257,7 @@ function WhatsappLivePanel({ sorteoId }) {
   const totalPendientes = conjuntos.filter((g) => !g.esRegalo && !g.disponible && !g.pagado).length;
   const resultadosNombres = conjuntos.filter((g) => g.nombre && g.nombre.toLowerCase().includes(busqueda.trim().toLowerCase()));
   const TABS = [['todo', 'Todo'], ['libres', 'Libres'], ['deudas', 'Deudas'], ['nombres', 'Nombres']];
-  const textareaClass = 'w-full bg-slate-800/70 border border-slate-700 focus:border-bingoaccent focus:outline-none rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500';
+  const textareaClass = 'w-full bg-slate-800/70 border border-slate-700 focus:border-bingoaccent focus:outline-none rounded-lg px-3 py-2 text-base leading-relaxed min-h-[130px] resize-y text-slate-100 placeholder-slate-500';
   const textoTabActual = subTab === 'todo' ? textoTodo() : subTab === 'libres' ? textoLibres() : subTab === 'deudas' ? textoDeudas() : '';
 
   return (
@@ -3352,31 +3352,31 @@ function WhatsappLivePanel({ sorteoId }) {
                   {estadoEncabezado === 'guardado' && <span className="text-[11px] text-emerald-400">✓ Guardado</span>}
                   {estadoEncabezado === 'error' && <span className="text-[11px] text-red-400">Error al guardar</span>}
                 </div>
-                <textarea rows={2} value={encabezado} onChange={(e) => setEncabezado(e.target.value)}
+                <textarea rows={5} value={encabezado} onChange={(e) => setEncabezado(e.target.value)}
                   placeholder="Ej: *BINGO MORADO — Hoy 8pm*" className={textareaClass} />
               </div>
               <div>
                 <Label>Pie de página — Todo (de este sorteo)</Label>
-                <textarea rows={2} value={piePagina} onChange={(e) => setPiePagina(e.target.value)}
+                <textarea rows={5} value={piePagina} onChange={(e) => setPiePagina(e.target.value)}
                   placeholder="Ej: Pagos por Pago Móvil al 0412-0000000" className={textareaClass} />
               </div>
               <div>
                 <Label>Encabezado — Disponibles</Label>
-                <textarea rows={2} value={config.disponibles_encabezado} onChange={(e) => setCampo('disponibles_encabezado', e.target.value)}
+                <textarea rows={5} value={config.disponibles_encabezado} onChange={(e) => setCampo('disponibles_encabezado', e.target.value)}
                   placeholder="Ej: 🎰 *CARTONES DISPONIBLES — {color}* 🎰" className={textareaClass} />
                 <p className="text-xs text-slate-500 mt-1">{'Usá {color} para el color del sorteo.'}</p>
               </div>
               <div>
                 <Label>Pie de página — Disponibles</Label>
-                <textarea rows={2} value={config.disponibles_pie} onChange={(e) => setCampo('disponibles_pie', e.target.value)} className={textareaClass} />
+                <textarea rows={5} value={config.disponibles_pie} onChange={(e) => setCampo('disponibles_pie', e.target.value)} className={textareaClass} />
               </div>
               <div>
                 <Label>Encabezado — Pendientes</Label>
-                <textarea rows={2} value={config.pendientes_encabezado} onChange={(e) => setCampo('pendientes_encabezado', e.target.value)} className={textareaClass} />
+                <textarea rows={5} value={config.pendientes_encabezado} onChange={(e) => setCampo('pendientes_encabezado', e.target.value)} className={textareaClass} />
               </div>
               <div>
                 <Label>Pie de página — Pendientes</Label>
-                <textarea rows={2} value={config.pendientes_pie} onChange={(e) => setCampo('pendientes_pie', e.target.value)} className={textareaClass} />
+                <textarea rows={5} value={config.pendientes_pie} onChange={(e) => setCampo('pendientes_pie', e.target.value)} className={textareaClass} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
