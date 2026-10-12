@@ -722,6 +722,216 @@ function RecordatorioPago({ jugadorId }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// MODO "JUGAR" de la consulta pública: el cartón se muestra lo más grande
+// posible (casi toda la pantalla) y la persona lo juega a mano, igual que con
+// un cartón de papel: toca donde quiera y queda una marca traslúcida (se ve el
+// cartón por detrás); si toca otra vez esa marca, se borra. No hay ninguna
+// automatización ni validación: las marcas son solo un apoyo visual.
+//
+// Las marcas se guardan en este dispositivo (localStorage), por sorteo y por
+// cartón, como porcentaje del ancho/alto de la imagen — así quedan en el mismo
+// lugar sin importar el tamaño de pantalla ni si se gira el teléfono.
+// ---------------------------------------------------------------------------
+const MARCAS_COLORES = [
+  { id: 'rosa', rgb: '236,72,153' },
+  { id: 'rojo', rgb: '239,68,68' },
+  { id: 'azul', rgb: '59,130,246' },
+  { id: 'verde', rgb: '16,185,129' },
+  { id: 'amarillo', rgb: '234,179,8' },
+];
+const MARCAS_ESTILOS = [
+  { id: 'circulo', label: '⬤' },
+  { id: 'check', label: '✔' },
+  { id: 'equis', label: '✖' },
+];
+const MARCAS_TAMANOS = { s: 7, m: 10, l: 14 }; // % del ancho del cartón
+
+function leerMarcasGuardadas(sorteoId) {
+  try { return JSON.parse(localStorage.getItem('bingo_marcas_' + sorteoId) || '{}') || {}; } catch (e) { return {}; }
+}
+function leerPrefMarca(clave, porDefecto) {
+  try { return localStorage.getItem(clave) || porDefecto; } catch (e) { return porDefecto; }
+}
+
+function MarcaVisual({ marca }) {
+  const color = (MARCAS_COLORES.find((c) => c.id === marca.c) || MARCAS_COLORES[0]).rgb;
+  const base = {
+    position: 'absolute', left: marca.x + '%', top: marca.y + '%', width: marca.s + '%',
+    aspectRatio: '1 / 1', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
+  };
+  if (marca.t === 'check' || marca.t === 'equis') {
+    const d = marca.t === 'check' ? 'M18 52 L42 76 L84 24' : 'M20 20 L80 80 M80 20 L20 80';
+    return (
+      <svg viewBox="0 0 100 100" style={base}>
+        <path d={d} fill="none" stroke={`rgba(${color},0.6)`} strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return <div style={{ ...base, borderRadius: '50%', background: `rgba(${color},0.38)`, border: `2px solid rgba(${color},0.75)` }} />;
+}
+
+function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
+  const [marcas, setMarcas] = useState(() => leerMarcasGuardadas(sorteoId));
+  const [estilo, setEstilo] = useState(() => leerPrefMarca('bingo_marca_estilo', 'circulo'));
+  const [colorId, setColorId] = useState(() => leerPrefMarca('bingo_marca_color', 'rosa'));
+  const [tam, setTam] = useState(() => leerPrefMarca('bingo_marca_tam', 'm'));
+  const [vista, setVista] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [dim, setDim] = useState({}); // { [clave]: { w, h } } tamaño natural de cada imagen
+  const barraRef = useRef(null);
+  const [alturaBarra, setAlturaBarra] = useState(96);
+  const cerrandoRef = useRef(false);
+
+  const claveDe = (c, i) => String(c.id ?? `${c.grupo ?? ''}-${i}`);
+  const letras = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  // Bloquea el scroll de la página de atrás y deja que "atrás" (botón del
+  // celular / gesto) cierre el modo en vez de salirse de la app.
+  useEffect(() => {
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    try { window.history.pushState({ jugarCarta: true }, ''); } catch (e) {}
+    const onPop = () => { cerrandoRef.current = true; onCerrar(); };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      document.body.style.overflow = previo;
+      window.removeEventListener('popstate', onPop);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setVista({ w: window.innerWidth, h: window.innerHeight });
+      if (barraRef.current) setAlturaBarra(barraRef.current.offsetHeight);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  function guardar(sig) {
+    setMarcas(sig);
+    try { localStorage.setItem('bingo_marcas_' + sorteoId, JSON.stringify(sig)); } catch (e) {}
+  }
+  function pref(clave, valor, setter) {
+    setter(valor);
+    try { localStorage.setItem(clave, valor); } catch (e) {}
+  }
+  function cerrar() {
+    // Si el modo se abrió con pushState, "cerrar" = volver atrás una entrada
+    // (el popstate de arriba llama a onCerrar); si no, cerrar directo.
+    if (window.history.state && window.history.state.jugarCarta) window.history.back();
+    else onCerrar();
+  }
+
+  function tocar(e, clave) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    const lista = marcas[clave] || [];
+    // ¿tocó una marca que ya está? -> se borra solo esa (la más cercana).
+    let idx = -1; let mejor = Infinity;
+    lista.forEach((m, i) => {
+      const dx = ((x - m.x) / 100) * rect.width;
+      const dy = ((y - m.y) / 100) * rect.height;
+      const d = Math.hypot(dx, dy);
+      const radio = (m.s / 100) * rect.width * 0.6;
+      if (d <= radio && d < mejor) { mejor = d; idx = i; }
+    });
+    if (idx >= 0) guardar({ ...marcas, [clave]: lista.filter((_, i) => i !== idx) });
+    else guardar({ ...marcas, [clave]: [...lista, { x: +x.toFixed(2), y: +y.toFixed(2), s: MARCAS_TAMANOS[tam], t: estilo, c: colorId }] });
+  }
+
+  function deshacer() {
+    // Quita la última marca puesta (en el cartón más reciente que tenga marcas).
+    const claves = cartones.map(claveDe).reverse();
+    const k = claves.find((c) => (marcas[c] || []).length);
+    if (k) guardar({ ...marcas, [k]: marcas[k].slice(0, -1) });
+  }
+  function reiniciar() {
+    if (!confirm('¿Borrar TODAS las marcas de esta carta?')) return;
+    const sig = { ...marcas };
+    cartones.forEach((c, i) => { delete sig[claveDe(c, i)]; });
+    guardar(sig);
+  }
+
+  const total = cartones.reduce((n, c, i) => n + (marcas[claveDe(c, i)] || []).length, 0);
+  const anchoMax = vista.w - 12;
+  const altoMax = vista.h - alturaBarra - 12;
+  const btn = (activo) => ({
+    padding: '6px 11px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+    border: activo ? '2px solid #f9a8d4' : '1px solid #475569',
+    background: activo ? 'rgba(236,72,153,0.25)' : '#1e293b', color: '#f8fafc',
+  });
+
+  // Portal a <body>: dentro de la Card del login hay un backdrop-filter que
+  // vuelve "relativo a la tarjeta" a cualquier hijo con position:fixed, y el
+  // modo Jugar quedaba recortado a ese cuadro en vez de ocupar la pantalla.
+  return ReactDOM.createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#020617', color: '#f8fafc', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <div ref={barraRef} style={{ position: 'sticky', top: 0, zIndex: 5, background: 'rgba(2,6,23,0.96)', borderBottom: '1px solid #334155', padding: '8px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" onClick={cerrar} style={btn(false)}>✕ Cerrar</button>
+          <div style={{ flex: 1, minWidth: 0 }} title={titulo} />
+          <button type="button" onClick={deshacer} disabled={!total} style={{ ...btn(false), opacity: total ? 1 : 0.4 }}>↶ Deshacer{total ? ` (${total})` : ''}</button>
+          <button type="button" onClick={reiniciar} disabled={!total} style={{ ...btn(false), opacity: total ? 1 : 0.4, borderColor: '#ef4444' }}>🗑 Reiniciar</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {MARCAS_ESTILOS.map((s) => (
+            <button key={s.id} type="button" onClick={() => pref('bingo_marca_estilo', s.id, setEstilo)} style={btn(estilo === s.id)}>{s.label}</button>
+          ))}
+          <span style={{ width: 1, height: 22, background: '#475569', margin: '0 2px' }} />
+          {MARCAS_COLORES.map((c) => (
+            <button
+              key={c.id} type="button" aria-label={c.id} onClick={() => pref('bingo_marca_color', c.id, setColorId)}
+              style={{ width: 26, height: 26, borderRadius: '50%', background: `rgb(${c.rgb})`, cursor: 'pointer', border: colorId === c.id ? '3px solid #fff' : '2px solid #1e293b' }}
+            />
+          ))}
+          <span style={{ width: 1, height: 22, background: '#475569', margin: '0 2px' }} />
+          {[['s', 'P'], ['m', 'M'], ['l', 'G']].map(([k, l]) => (
+            <button key={k} type="button" onClick={() => pref('bingo_marca_tam', k, setTam)} style={btn(tam === k)}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '6px 6px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+        {cartones.map((c, i) => {
+          const clave = claveDe(c, i);
+          const d = dim[clave];
+          const ratio = d ? d.w / d.h : 1;
+          const ancho = c.imagen_url ? Math.max(120, Math.min(anchoMax, altoMax * ratio)) : Math.min(anchoMax, 520);
+          return (
+            <div key={clave} style={{ width: ancho, maxWidth: '100%' }}>
+              {cartones.length > 1 && <div style={{ textAlign: 'center', fontWeight: 900, fontSize: 14, color: '#94a3b8', marginBottom: 4 }}>Cartón {c.letra || letras[i]}</div>}
+              <div style={{ position: 'relative', width: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
+                {c.imagen_url ? (
+                  <img
+                    src={c.imagen_url} alt={`Cartón ${c.numero}`} draggable={false}
+                    onLoad={(e) => setDim((p) => ({ ...p, [clave]: { w: e.target.naturalWidth, h: e.target.naturalHeight } }))}
+                    style={{ display: 'block', width: '100%', height: 'auto', background: '#fff', borderRadius: 8 }}
+                  />
+                ) : (
+                  <MiniCard carton={c} letra={null} compact={false} />
+                )}
+                <div
+                  onClick={(e) => tocar(e, clave)}
+                  style={{ position: 'absolute', inset: 0, cursor: 'crosshair', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                >
+                  {(marcas[clave] || []).map((m, j) => <MarcaVisual key={j} marca={m} />)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <p style={{ fontSize: 12, color: '#64748b', textAlign: 'center', maxWidth: 420 }}>
+          Toca el cartón para marcar. Toca una marca para quitarla. Tus marcas quedan guardadas en este dispositivo.
+        </p>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // Consulta pública de una carta/cartón: cualquiera que sepa el número puede
 // verla y descargarla, sin login ni datos personales. Si el sorteo vende por
 // combo, se busca por número de carta y se muestra/descarga completa (todos
@@ -739,6 +949,7 @@ function ConsultaCartonesPanel({ onVolver }) {
   const [sorteoNombre, setSorteoNombre] = useState(null);
   const [resultadosNombre, setResultadosNombre] = useState(null);
   const [personaElegida, setPersonaElegida] = useState(null);
+  const [jugando, setJugando] = useState(null); // { cartones, sorteoId, titulo } mientras está abierto el modo Jugar
   const numeroBuscadoRef = useRef(''); // último valor efectivamente buscado (no el input en vivo, que puede diferir sin haber tocado "Consultar")
   const nombreBuscadoRef = useRef('');
 
@@ -829,6 +1040,7 @@ function ConsultaCartonesPanel({ onVolver }) {
 
   return (
     <>
+      {jugando && <JugarCartaOverlay cartones={jugando.cartones} sorteoId={jugando.sorteoId} titulo={jugando.titulo} onCerrar={() => setJugando(null)} />}
       <h2 className="text-center font-bold text-sky-100 mb-4">Consulta tu Carta</h2>
 
       {sorteosPublicos && sorteosPublicos.length === 0 && (
@@ -914,6 +1126,10 @@ function ConsultaCartonesPanel({ onVolver }) {
           {/* Sin descarga mientras esté bloqueado — el PNG se genera aparte
               del DOM (no hereda el blur), así que mostraría el cartón limpio. */}
           {!(bloqueoCartonesPendientes && resultado.cartones[0]?.estado === 'vendido') && (
+            <>
+            <Button className="w-full" onClick={() => setJugando({ cartones: resultado.cartones, sorteoId: resultado.sorteo.id, titulo: 'Carta ' + (resultado.cartones[0].grupo ?? resultado.cartones[0].numero) })}>
+              🎮 Jugar esta carta
+            </Button>
             <Button
               variant="ghost"
               className="w-full"
@@ -921,6 +1137,7 @@ function ConsultaCartonesPanel({ onVolver }) {
             >
               ⬇ Descargar
             </Button>
+            </>
           )}
         </div>
       )}
@@ -963,6 +1180,10 @@ function ConsultaCartonesPanel({ onVolver }) {
                 ? <ComboCard grupo={g.grupo} color={g.cartones[0].color} cartones={g.cartones} compact={false} respetarBloqueo />
                 : <MiniCard carton={g.cartones[0]} letra={g.cartones[0].letra} imagenUrl={g.cartones[0].imagen_url} compact={false} respetarBloqueo />}
               {!(bloqueoCartonesPendientes && g.cartones[0]?.estado === 'vendido') && (
+                <>
+                <Button className="w-full" onClick={() => setJugando({ cartones: g.cartones, sorteoId: sorteoNombre.id, titulo: 'Carta ' + g.grupo })}>
+                  🎮 Jugar esta carta
+                </Button>
                 <Button
                   variant="ghost"
                   className="w-full"
@@ -970,6 +1191,7 @@ function ConsultaCartonesPanel({ onVolver }) {
                 >
                   ⬇ Descargar
                 </Button>
+                </>
               )}
             </div>
           ))}
@@ -1138,7 +1360,7 @@ function AuthScreen() {
           🔒
         </button>
       )}
-      <div className={`w-full relative z-10 ${mode === 'consulta' ? 'max-w-2xl' : 'max-w-md'}`}>
+      <div className={`w-full relative z-10 ${mode === 'consulta' ? 'max-w-4xl' : 'max-w-md'}`}>
         <div className="text-center mb-6">
           <img src={logoUrl || "logo.png"} alt="Bingo JY" className="w-24 h-24 mx-auto mb-2 rounded-full object-cover border-2 border-bingoaccent shadow-glow" />
           <h1 className="text-2xl font-black bg-gradient-to-r from-rose-300 to-pink-300 bg-clip-text text-transparent">Bingo JY</h1>
