@@ -790,11 +790,20 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
   useEffect(() => {
     const previo = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // Rendimiento: con el modo Jugar abierto, la página de atrás (fondo
+    // animado + tarjetas con blur) no se ve pero seguía pintándose y frenaba
+    // cada toque. Se oculta por completo mientras se juega y se restaura al salir.
+    const raiz = document.getElementById('root');
+    const displayPrevio = raiz ? raiz.style.display : '';
+    if (raiz) raiz.style.display = 'none';
+    document.body.classList.add('modo-jugar');
     try { window.history.pushState({ jugarCarta: true }, ''); } catch (e) {}
     const onPop = () => { cerrandoRef.current = true; onCerrar(); };
     window.addEventListener('popstate', onPop);
     return () => {
       document.body.style.overflow = previo;
+      if (raiz) raiz.style.display = displayPrevio;
+      document.body.classList.remove('modo-jugar');
       window.removeEventListener('popstate', onPop);
     };
   }, []);
@@ -1254,7 +1263,15 @@ function BingoBallsBackground() {
       return luminancia > 140 ? '#0f172a' : '#f8fafc';
     }
 
-    function step() {
+    // Rendimiento: ~30 fps (sobra para este fondo y gasta la mitad), sin
+    // shadowBlur (era lo más caro de pintar: el brillo ahora es un círculo
+    // translúcido más grande) y en pausa mientras está abierto el modo Jugar.
+    let ultimoCuadro = 0;
+    function step(ts) {
+      raf = requestAnimationFrame(step);
+      if (document.body.classList.contains('modo-jugar')) return;
+      if (ts - ultimoCuadro < 33) return;
+      ultimoCuadro = ts;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       balls.forEach((b) => {
         const dx = b.x - mouse.x;
@@ -1276,13 +1293,16 @@ function BingoBallsBackground() {
 
         ctx.save();
         ctx.globalAlpha = 0.5;
-        ctx.shadowColor = b.color;
-        ctx.shadowBlur = 20;
+        ctx.fillStyle = b.color;
+        ctx.globalAlpha = 0.18;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * 1.45, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.5;
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         ctx.fillStyle = b.color;
         ctx.fill();
-        ctx.shadowBlur = 0;
         ctx.globalAlpha = 0.85;
         ctx.fillStyle = colorTexto(b.color);
         ctx.font = `700 ${Math.floor(b.r * 0.8)}px sans-serif`;
@@ -1291,7 +1311,6 @@ function BingoBallsBackground() {
         ctx.fillText(String(b.num), b.x, b.y + 1);
         ctx.restore();
       });
-      raf = requestAnimationFrame(step);
     }
 
     function onMove(e) {
@@ -1305,7 +1324,7 @@ function BingoBallsBackground() {
 
     resize();
     initBalls();
-    step();
+    step(performance.now());
     window.addEventListener('resize', resize);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseleave', onLeave);
