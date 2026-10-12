@@ -151,7 +151,7 @@ function SettingsProvider({ children }) {
 // ---------------------------------------------------------------------------
 function Card({ children, className }) {
   return (
-    <div className={`bg-slate-900/60 backdrop-blur border border-bingopurple/30 rounded-2xl shadow-glow p-5 ${className || ''}`}>
+    <div className={`bg-slate-900/60 border border-bingopurple/30 rounded-2xl shadow-glow p-5 ${className || ''}`}>
       {children}
     </div>
   );
@@ -218,7 +218,7 @@ function WhatsAppButton({ className }) {
 }
 function Modal({ title, onClose, children, wide }) {
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
       <div className={`bg-slate-900 border border-bingopurple/40 rounded-2xl shadow-glow p-5 w-full ${wide ? 'max-w-4xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto pop-in`}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-rose-200">{title}</h3>
@@ -1225,118 +1225,56 @@ function ConsultaCartonesPanel({ onVolver }) {
 // puro (pointer-events: none), se mueven solas y se apartan del cursor al
 // pasar cerca para que se sienta interactivo sin estorbar los clicks reales.
 function BingoBallsBackground() {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const PALETA = ['#fdba74', '#fb923c', '#f87171', '#fde047', '#c084fc', '#5eead4'];
-    const mouse = { x: -9999, y: -9999 };
-    let balls = [];
-    let raf;
-
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-
-    function initBalls() {
-      const cantidad = Math.max(12, Math.min(26, Math.floor((window.innerWidth * window.innerHeight) / 55000)));
-      balls = Array.from({ length: cantidad }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        r: 16 + Math.random() * 22,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        color: PALETA[Math.floor(Math.random() * PALETA.length)],
-        num: 1 + Math.floor(Math.random() * 75),
-      }));
-    }
-
-    // Color de texto por luminancia del fondo (no fijo) -- así el número
-    // siempre queda legible sea cual sea el color que le toque a la bola.
-    function colorTexto(hex) {
-      const r = parseInt(hex.slice(1, 3), 16);
-      const g = parseInt(hex.slice(3, 5), 16);
-      const b = parseInt(hex.slice(5, 7), 16);
-      const luminancia = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      return luminancia > 140 ? '#0f172a' : '#f8fafc';
-    }
-
-    // Rendimiento: ~30 fps (sobra para este fondo y gasta la mitad), sin
-    // shadowBlur (era lo más caro de pintar: el brillo ahora es un círculo
-    // translúcido más grande) y en pausa mientras está abierto el modo Jugar.
-    let ultimoCuadro = 0;
-    function step(ts) {
-      raf = requestAnimationFrame(step);
-      if (document.body.classList.contains('modo-jugar')) return;
-      if (ts - ultimoCuadro < 33) return;
-      ultimoCuadro = ts;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      balls.forEach((b) => {
-        const dx = b.x - mouse.x;
-        const dy = b.y - mouse.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        if (dist < 130) {
-          const fuerza = (130 - dist) / 130;
-          b.vx += (dx / dist) * fuerza * 0.7;
-          b.vy += (dy / dist) * fuerza * 0.7;
-        }
-        b.x += b.vx;
-        b.y += b.vy;
-        b.vx *= 0.97;
-        b.vy *= 0.97;
-        if (b.x < -40) b.x = canvas.width + 40;
-        if (b.x > canvas.width + 40) b.x = -40;
-        if (b.y < -40) b.y = canvas.height + 40;
-        if (b.y > canvas.height + 40) b.y = -40;
-
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        ctx.fillStyle = b.color;
-        ctx.globalAlpha = 0.18;
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r * 1.45, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-        ctx.fillStyle = b.color;
-        ctx.fill();
-        ctx.globalAlpha = 0.85;
-        ctx.fillStyle = colorTexto(b.color);
-        ctx.font = `700 ${Math.floor(b.r * 0.8)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(b.num), b.x, b.y + 1);
-        ctx.restore();
-      });
-    }
-
-    function onMove(e) {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
-    }
-    function onLeave() {
-      mouse.x = -9999;
-      mouse.y = -9999;
-    }
-
-    resize();
-    initBalls();
-    step(performance.now());
-    window.addEventListener('resize', resize);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseleave', onLeave);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseleave', onLeave);
+  // Fondo de bolas 100% CSS: posiciones y recorridos FIJOS (siempre el mismo
+  // patrón, sin reaccionar al mouse) y animadas solo con transform, que el
+  // navegador resuelve en la GPU sin ejecutar nada de JavaScript por cuadro.
+  // Antes era un <canvas> redibujado 60 veces por segundo con sombras y
+  // listeners de mouse, lo más pesado de toda la pantalla de entrada.
+  const PALETA = ['#fdba74', '#fb923c', '#f87171', '#fde047', '#c084fc', '#5eead4'];
+  const bolas = useMemo(() => {
+    const cantidad = Math.max(8, Math.min(16, Math.floor((window.innerWidth * window.innerHeight) / 70000)));
+    let semilla = 20240607; // pseudoaleatorio con semilla fija -> mismo patrón siempre
+    const rnd = () => { semilla = (semilla * 16807) % 2147483647; return semilla / 2147483647; };
+    // Texto oscuro o claro según la luminancia del color de la bola
+    const textoPara = (hex) => {
+      const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 140 ? '#0f172a' : '#f8fafc';
     };
+    return Array.from({ length: cantidad }, (_, i) => {
+      const color = PALETA[i % PALETA.length];
+      const d = 32 + Math.floor(rnd() * 44);
+      return {
+        key: i, color, texto: textoPara(color), d,
+        left: Math.round(rnd() * 96), top: Math.round(rnd() * 96),
+        dx: Math.round((rnd() - 0.5) * 120), dy: Math.round((rnd() - 0.5) * 160),
+        dur: 16 + Math.floor(rnd() * 14), del: -Math.floor(rnd() * 20),
+        num: 1 + Math.floor(rnd() * 75),
+      };
+    });
   }, []);
-
-  return <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none" style={{ zIndex: 0 }} aria-hidden="true" />;
+  return (
+    <div className="bolas-fondo" aria-hidden="true" style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden' }}>
+      <style>{`
+        .bola-fondo { position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          font-weight: 700; opacity: .5; will-change: transform; contain: layout paint style;
+          animation: bolaFlota var(--dur) ease-in-out var(--del) infinite alternate; }
+        @keyframes bolaFlota { from { transform: translate3d(0,0,0); } to { transform: translate3d(var(--dx), var(--dy), 0); } }
+        @media (prefers-reduced-motion: reduce) { .bola-fondo { animation: none; } }
+        body.modo-jugar .bolas-fondo { display: none; }
+      `}</style>
+      {bolas.map((b) => (
+        <div
+          key={b.key}
+          className="bola-fondo"
+          style={{
+            left: b.left + '%', top: b.top + '%', width: b.d, height: b.d, background: b.color, color: b.texto,
+            fontSize: Math.floor(b.d * 0.4), boxShadow: '0 0 14px ' + b.color,
+            '--dx': b.dx + 'px', '--dy': b.dy + 'px', '--dur': b.dur + 's', '--del': b.del + 's',
+          }}
+        >{b.num}</div>
+      ))}
+    </div>
+  );
 }
 
 function AuthScreen() {
@@ -1480,7 +1418,7 @@ function Shell({ title, tabs, active, onTab, right, children }) {
         ))}
       </aside>
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-bingopurple/20 bg-slate-950/40 backdrop-blur px-4 md:px-8 py-4 flex items-center justify-between">
+        <header className="border-b border-bingopurple/20 bg-slate-950/40 px-4 md:px-8 py-4 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-rose-100">{title}</h1>
           </div>
