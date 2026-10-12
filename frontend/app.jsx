@@ -745,7 +745,7 @@ const MARCAS_ESTILOS = [
   { id: 'check', label: '✔' },
   { id: 'equis', label: '✖' },
 ];
-const MARCAS_TAMANOS = { s: 7, m: 10, l: 14 }; // % del ancho del cartón
+const MARCAS_TAMANOS = { s: 4, m: 6, l: 9 }; // % del ancho del cartón
 
 function leerMarcasGuardadas(sorteoId) {
   try { return JSON.parse(localStorage.getItem('bingo_marcas_' + sorteoId) || '{}') || {}; } catch (e) { return {}; }
@@ -775,7 +775,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
   const [marcas, setMarcas] = useState(() => leerMarcasGuardadas(sorteoId));
   const [estilo, setEstilo] = useState(() => leerPrefMarca('bingo_marca_estilo', 'circulo'));
   const [colorId, setColorId] = useState(() => leerPrefMarca('bingo_marca_color', 'rosa'));
-  const [tam, setTam] = useState(() => leerPrefMarca('bingo_marca_tam', 'm'));
+  const [tam, setTam] = useState(() => leerPrefMarca('bingo_marca_tam_v2', 's'));
   const [vista, setVista] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [dim, setDim] = useState({}); // { [clave]: { w, h } } tamaño natural de cada imagen
   const barraRef = useRef(null);
@@ -835,7 +835,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
       const dx = ((x - m.x) / 100) * rect.width;
       const dy = ((y - m.y) / 100) * rect.height;
       const d = Math.hypot(dx, dy);
-      const radio = (m.s / 100) * rect.width * 0.6;
+      const radio = Math.max((m.s / 100) * rect.width * 0.6, 14); // mínimo 14px para poder tocar marcas chicas
       if (d <= radio && d < mejor) { mejor = d; idx = i; }
     });
     if (idx >= 0) guardar({ ...marcas, [clave]: lista.filter((_, i) => i !== idx) });
@@ -889,7 +889,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
           ))}
           <span style={{ width: 1, height: 22, background: '#475569', margin: '0 2px' }} />
           {[['s', 'P'], ['m', 'M'], ['l', 'G']].map(([k, l]) => (
-            <button key={k} type="button" onClick={() => pref('bingo_marca_tam', k, setTam)} style={btn(tam === k)}>{l}</button>
+            <button key={k} type="button" onClick={() => pref('bingo_marca_tam_v2', k, setTam)} style={btn(tam === k)}>{l}</button>
           ))}
         </div>
       </div>
