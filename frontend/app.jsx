@@ -899,21 +899,18 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
           const clave = claveDe(c, i);
           const d = dim[clave];
           const ratio = d ? d.w / d.h : 1;
-          // Una sola carta (lo normal): se ESTIRA para ocupar toda el área
-          // disponible de la pantalla (ancho y alto), aunque se deforme un
-          // poco — lo que importa es verla lo más grande posible. Con varias
-          // (combo) se respeta la proporción y se desplaza hacia abajo.
-          const estirar = !!c.imagen_url && cartones.length === 1;
-          const ancho = c.imagen_url ? (estirar ? anchoMax : Math.max(120, Math.min(anchoMax, altoMax * ratio))) : Math.min(anchoMax, 520);
+          // Lo más grande que entre en pantalla SIN deformar la imagen: se
+          // ajusta al ancho disponible, y si es más alta que la pantalla, al alto.
+          const ancho = c.imagen_url ? Math.max(120, Math.min(anchoMax, altoMax * ratio)) : Math.min(anchoMax, 520);
           return (
-            <div key={clave} style={{ width: ancho, maxWidth: '100%', ...(estirar ? { height: altoMax } : {}) }}>
+            <div key={clave} style={{ width: ancho, maxWidth: '100%' }}>
               {cartones.length > 1 && <div style={{ textAlign: 'center', fontWeight: 900, fontSize: 14, color: '#94a3b8', marginBottom: 4 }}>Cartón {c.letra || letras[i]}</div>}
-              <div style={{ position: 'relative', width: '100%', height: estirar ? '100%' : undefined, userSelect: 'none', WebkitUserSelect: 'none' }}>
+              <div style={{ position: 'relative', width: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
                 {c.imagen_url ? (
                   <img
                     src={c.imagen_url} alt={`Cartón ${c.numero}`} draggable={false}
                     onLoad={(e) => setDim((p) => ({ ...p, [clave]: { w: e.target.naturalWidth, h: e.target.naturalHeight } }))}
-                    style={{ display: 'block', width: '100%', height: estirar ? '100%' : 'auto', objectFit: 'fill', background: '#fff', borderRadius: 8 }}
+                    style={{ display: 'block', width: '100%', height: 'auto', background: '#fff', borderRadius: 8 }}
                   />
                 ) : (
                   <MiniCard carton={c} letra={null} compact={false} />
