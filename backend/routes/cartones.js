@@ -6,6 +6,16 @@ const { generateUniqueCards } = require('../cardGenerator');
 const { registrarLog } = require('../logActividad');
 const router = express.Router();
 
+// Figuras del sorteo para la consulta pública (sin premios ni montos): solo
+// nombre, dibujo y estado, para que el jugador sepa qué figuras se juegan.
+function figurasPublicas(sorteoId) {
+  const { computeStats } = require('./sorteos');
+  const st = computeStats(sorteoId);
+  return ((st && st.figuras) || []).map((f) => ({
+    patron: f.patron, label: f.label, preview: f.preview, ganada: f.ganada, cerrada: f.cerrada, bloqueada: !!f.bloqueada,
+  }));
+}
+
 function parseCard(c) {
   return { ...c, grid: JSON.parse(c.grid), marcados: JSON.parse(c.marcados) };
 }
@@ -302,7 +312,7 @@ router.get('/consulta', (req, res) => {
 
   res.json({
     encontrado: true,
-    sorteo: { id: sorteo.id, color: sorteo.color, fecha_hora: sorteo.fecha_hora, estatus: sorteo.estatus, tipo_venta: sorteo.tipo_venta },
+    sorteo: { id: sorteo.id, color: sorteo.color, fecha_hora: sorteo.fecha_hora, estatus: sorteo.estatus, tipo_venta: sorteo.tipo_venta, figuras: figurasPublicas(sorteo.id) },
     esRegalo: !!sorteo.regalo_desde && numero >= sorteo.regalo_desde,
     cartones: rows.map(parseCard),
   });
@@ -360,7 +370,7 @@ router.get('/consulta-nombre', (req, res) => {
   });
 
   res.json({
-    sorteo: { id: sorteo.id, color: sorteo.color, fecha_hora: sorteo.fecha_hora, estatus: sorteo.estatus, tipo_venta: sorteo.tipo_venta },
+    sorteo: { id: sorteo.id, color: sorteo.color, fecha_hora: sorteo.fecha_hora, estatus: sorteo.estatus, tipo_venta: sorteo.tipo_venta, figuras: figurasPublicas(sorteo.id) },
     resultados,
   });
 });

@@ -755,6 +755,38 @@ function leerPrefMarca(clave, porDefecto) {
   try { return localStorage.getItem(clave) || porDefecto; } catch (e) { return porDefecto; }
 }
 
+// Figuras del sorteo, para saber cuáles se juegan: mini-matriz + nombre + estado.
+// Las ya cerradas o todavía bloqueadas se ven atenuadas. `fila` = una sola
+// línea con scroll horizontal (barra del modo Jugar); si no, se acomodan en varias.
+function FigurasEnJuego({ figuras, oscuro = false, fila = false, tam = 9, plegado = false, onToggle }) {
+  if (!figuras || !figuras.length) return null;
+  return (
+    <div className="mb-3" style={fila ? { marginBottom: 0, marginTop: 8 } : undefined}>
+      <div className="text-[11px] uppercase tracking-widest text-center mb-1" onClick={onToggle} style={{ color: oscuro ? '#94a3b8' : undefined, opacity: oscuro ? 1 : 0.7, cursor: onToggle ? 'pointer' : undefined }}>Figuras que se juegan{onToggle ? (plegado ? ' ▾' : ' ▴') : ''}</div>
+      {!plegado && <div style={{ display: 'flex', gap: 8, ...(fila ? { overflowX: 'auto', paddingBottom: 4 } : { flexWrap: 'wrap', justifyContent: 'center' }) }}>
+        {figuras.map((f) => {
+          const activa = !f.cerrada && !f.bloqueada;
+          return (
+            <div key={f.patron} style={{
+              flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 10,
+              border: '1px solid ' + (activa ? 'rgba(52,211,153,.65)' : 'rgba(148,163,184,.35)'),
+              background: activa ? 'rgba(16,185,129,.14)' : 'rgba(148,163,184,.08)', opacity: activa ? 1 : 0.55,
+            }}>
+              {f.preview && <PatternGrid mask={f.preview} size={tam} />}
+              <div style={{ fontSize: 11, lineHeight: 1.15, fontWeight: 700, color: oscuro ? '#e2e8f0' : undefined }}>
+                {f.label}
+                <div style={{ fontWeight: 500, fontSize: 10, opacity: 0.85 }}>
+                  {f.cerrada ? '🔒 cerrada' : f.bloqueada ? '⏳ después' : f.ganada ? '✅ con ganador' : '🎯 en juego'}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>}
+    </div>
+  );
+}
+
 function MarcaVisual({ marca }) {
   const color = (MARCAS_COLORES.find((c) => c.id === marca.c) || MARCAS_COLORES[0]).rgb;
   const base = {
@@ -772,13 +804,14 @@ function MarcaVisual({ marca }) {
   return <div style={{ ...base, borderRadius: '50%', background: `rgba(${color},0.38)`, border: `2px solid rgba(${color},0.75)` }} />;
 }
 
-function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
+function JugarCartaOverlay({ cartones, sorteoId, titulo, figuras, onCerrar }) {
   const { whatsappLink } = useSettings(); // link del grupo (Configuración); sin link, no se muestra el botón
   const [marcas, setMarcas] = useState(() => leerMarcasGuardadas(sorteoId));
   const [estilo, setEstilo] = useState(() => leerPrefMarca('bingo_marca_estilo', 'circulo'));
   const [colorId, setColorId] = useState(() => leerPrefMarca('bingo_marca_color', 'rosa'));
   const [tam, setTam] = useState(() => leerPrefMarca('bingo_marca_tam_v2', 's'));
   const [vista, setVista] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [verFiguras, setVerFiguras] = useState(true);
   const [dim, setDim] = useState({}); // { [clave]: { w, h } } tamaño natural de cada imagen
   const barraRef = useRef(null);
   const [alturaBarra, setAlturaBarra] = useState(96);
@@ -819,6 +852,9 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // La barra cambia de alto al plegar/desplegar las figuras: se vuelve a medir para que la carta use el espacio libre.
+  useEffect(() => { if (barraRef.current) setAlturaBarra(barraRef.current.offsetHeight); }, [verFiguras, figuras, whatsappLink]);
 
   function guardar(sig) {
     setMarcas(sig);
@@ -872,7 +908,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
   const anchoMax = vista.w - 12;
   const altoMax = vista.h - alturaBarra - 12;
   const btn = (activo) => ({
-    padding: '6px 11px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+    padding: '5px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer',
     border: activo ? '2px solid #f9a8d4' : '1px solid #475569',
     background: activo ? 'rgba(236,72,153,0.25)' : '#1e293b', color: '#f8fafc',
   });
@@ -911,6 +947,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
             <button key={k} type="button" onClick={() => pref('bingo_marca_tam_v2', k, setTam)} style={btn(tam === k)}>{l}</button>
           ))}
         </div>
+        <FigurasEnJuego figuras={figuras} oscuro fila tam={6} plegado={!verFiguras} onToggle={() => setVerFiguras((v) => !v)} />
       </div>
 
       <div style={{ padding: '6px 6px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
@@ -1034,7 +1071,7 @@ function ConsultaCartonesPanel({ onVolver }) {
         }
       } catch (e) { /* se queda con la carta consultada */ }
     }
-    setJugando({ cartones, sorteoId: res.sorteo.id, titulo: 'Mis cartas' });
+    setJugando({ cartones, sorteoId: res.sorteo.id, titulo: 'Mis cartas', figuras: res.sorteo.figuras });
   }
 
   async function consultar(e) {
@@ -1080,7 +1117,7 @@ function ConsultaCartonesPanel({ onVolver }) {
 
   return (
     <>
-      {jugando && <JugarCartaOverlay cartones={jugando.cartones} sorteoId={jugando.sorteoId} titulo={jugando.titulo} onCerrar={() => setJugando(null)} />}
+      {jugando && <JugarCartaOverlay cartones={jugando.cartones} sorteoId={jugando.sorteoId} titulo={jugando.titulo} figuras={jugando.figuras} onCerrar={() => setJugando(null)} />}
       <h2 className="text-center font-bold text-sky-100 mb-4">Consulta tu Carta</h2>
 
       {sorteosPublicos && sorteosPublicos.length === 0 && (
@@ -1153,6 +1190,7 @@ function ConsultaCartonesPanel({ onVolver }) {
             Sorteo #{resultado.sorteo.id} · {resultado.sorteo.color} · {resultado.sorteo.fecha_hora?.replace('T', ' ')}
             <Badge tone={resultado.sorteo.estatus === 'en_juego' ? 'yellow' : resultado.sorteo.estatus === 'finalizado' ? 'gray' : 'green'}>{resultado.sorteo.estatus}</Badge>
           </div>
+          <FigurasEnJuego figuras={resultado.sorteo.figuras} />
           <div className="text-center">
             <div className="text-[11px] uppercase tracking-widest text-slate-400 mb-1">Este cartón pertenece a</div>
             <div className="owner-neon-board">
@@ -1204,6 +1242,7 @@ function ConsultaCartonesPanel({ onVolver }) {
             Sorteo #{sorteoNombre.id} · {sorteoNombre.color} · {sorteoNombre.fecha_hora?.replace('T', ' ')}
             <Badge tone={sorteoNombre.estatus === 'en_juego' ? 'yellow' : sorteoNombre.estatus === 'finalizado' ? 'gray' : 'green'}>{sorteoNombre.estatus}</Badge>
           </div>
+          <FigurasEnJuego figuras={sorteoNombre.figuras} />
           <div className="text-center">
             <div className="text-[11px] uppercase tracking-widest text-slate-400 mb-1">Este cartón pertenece a</div>
             <div className="owner-neon-board">
@@ -1217,7 +1256,7 @@ function ConsultaCartonesPanel({ onVolver }) {
             // Un solo botón: juega TODAS las cartas de la persona a la vez (las bloqueadas por pago pendiente quedan fuera).
             const jugables = personaElegida.grupos.filter((g) => !(bloqueoCartonesPendientes && g.cartones[0]?.estado === 'vendido')).flatMap((g) => g.cartones);
             return jugables.length ? (
-              <Button className="w-full" onClick={() => setJugando({ cartones: jugables, sorteoId: sorteoNombre.id, titulo: 'Mis cartas' })}>
+              <Button className="w-full" onClick={() => setJugando({ cartones: jugables, sorteoId: sorteoNombre.id, titulo: 'Mis cartas', figuras: sorteoNombre.figuras })}>
                 🎮 Jugar mis cartas{jugables.length > 1 ? ` (${jugables.length})` : ''}
               </Button>
             ) : null;
