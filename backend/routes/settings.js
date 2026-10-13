@@ -37,6 +37,8 @@ router.get('/public', (req, res) => {
     logoUrl: getSetting('logo_path') || '',
     loginSubtitle: getSetting('login_subtitle') || DEFAULT_LOGIN_SUBTITLE,
     bloqueoCartonesPendientes: getSetting('bloqueo_cartones_pendientes') === '1',
+    // El botón de WhatsApp también se muestra en la consulta pública (sin login).
+    whatsappLink: getSetting('whatsapp_link') || '',
   });
 });
 
