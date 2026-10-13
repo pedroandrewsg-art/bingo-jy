@@ -864,6 +864,8 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
     guardar(sig);
   }
 
+  // Varias cartas distintas (todas las de una persona) se rotulan "Carta N"; los cartones de un combo, A/B/C/D.
+  const cartasDistintas = new Set(cartones.map((c) => c.grupo ?? c.numero)).size;
   const total = cartones.reduce((n, c, i) => n + (marcas[claveDe(c, i)] || []).length, 0);
   const anchoMax = vista.w - 12;
   const altoMax = vista.h - alturaBarra - 12;
@@ -913,7 +915,7 @@ function JugarCartaOverlay({ cartones, sorteoId, titulo, onCerrar }) {
           const ancho = c.imagen_url ? Math.max(120, Math.min(anchoMax, altoMax * ratio)) : Math.min(anchoMax, 520);
           return (
             <div key={clave} style={{ width: ancho, maxWidth: '100%' }}>
-              {cartones.length > 1 && <div style={{ textAlign: 'center', fontWeight: 900, fontSize: 14, color: '#94a3b8', marginBottom: 4 }}>Cartón {c.letra || letras[i]}</div>}
+              {cartones.length > 1 && <div style={{ textAlign: 'center', fontWeight: 900, fontSize: 14, color: '#94a3b8', marginBottom: 4 }}>{cartasDistintas > 1 ? `Carta ${c.grupo ?? c.numero}${c.letra ? ' · ' + c.letra : ''}` : `Cartón ${c.letra || letras[i]}`}</div>}
               <div style={{ position: 'relative', width: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
                 {c.imagen_url ? (
                   <img
@@ -1184,6 +1186,15 @@ function ConsultaCartonesPanel({ onVolver }) {
           {!personaElegida.grupos.length && (
             <p className="text-sm text-slate-500 text-center">Todavía no tiene cartones asignados en este sorteo.</p>
           )}
+          {(() => {
+            // Un solo botón: juega TODAS las cartas de la persona a la vez (las bloqueadas por pago pendiente quedan fuera).
+            const jugables = personaElegida.grupos.filter((g) => !(bloqueoCartonesPendientes && g.cartones[0]?.estado === 'vendido')).flatMap((g) => g.cartones);
+            return jugables.length ? (
+              <Button className="w-full" onClick={() => setJugando({ cartones: jugables, sorteoId: sorteoNombre.id, titulo: 'Mis cartas' })}>
+                🎮 Jugar mis cartas{jugables.length > 1 ? ` (${jugables.length})` : ''}
+              </Button>
+            ) : null;
+          })()}
           {personaElegida.grupos.map((g) => (
             <div key={g.grupo} className="space-y-2">
               {g.esRegalo && <div className="text-center"><Badge tone="rose">🎁 Regalo</Badge></div>}
@@ -1192,9 +1203,6 @@ function ConsultaCartonesPanel({ onVolver }) {
                 : <MiniCard carton={g.cartones[0]} letra={g.cartones[0].letra} imagenUrl={g.cartones[0].imagen_url} compact={false} respetarBloqueo />}
               {!(bloqueoCartonesPendientes && g.cartones[0]?.estado === 'vendido') && (
                 <>
-                <Button className="w-full" onClick={() => setJugando({ cartones: g.cartones, sorteoId: sorteoNombre.id, titulo: 'Carta ' + g.grupo })}>
-                  🎮 Jugar esta carta
-                </Button>
                 <Button
                   variant="ghost"
                   className="w-full"
