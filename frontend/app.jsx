@@ -1190,7 +1190,6 @@ function ConsultaCartonesPanel({ onVolver }) {
             Sorteo #{resultado.sorteo.id} · {resultado.sorteo.color} · {resultado.sorteo.fecha_hora?.replace('T', ' ')}
             <Badge tone={resultado.sorteo.estatus === 'en_juego' ? 'yellow' : resultado.sorteo.estatus === 'finalizado' ? 'gray' : 'green'}>{resultado.sorteo.estatus}</Badge>
           </div>
-          <FigurasEnJuego figuras={resultado.sorteo.figuras} />
           <div className="text-center">
             <div className="text-[11px] uppercase tracking-widest text-slate-400 mb-1">Este cartón pertenece a</div>
             <div className="owner-neon-board">
@@ -1242,7 +1241,6 @@ function ConsultaCartonesPanel({ onVolver }) {
             Sorteo #{sorteoNombre.id} · {sorteoNombre.color} · {sorteoNombre.fecha_hora?.replace('T', ' ')}
             <Badge tone={sorteoNombre.estatus === 'en_juego' ? 'yellow' : sorteoNombre.estatus === 'finalizado' ? 'gray' : 'green'}>{sorteoNombre.estatus}</Badge>
           </div>
-          <FigurasEnJuego figuras={sorteoNombre.figuras} />
           <div className="text-center">
             <div className="text-[11px] uppercase tracking-widest text-slate-400 mb-1">Este cartón pertenece a</div>
             <div className="owner-neon-board">
