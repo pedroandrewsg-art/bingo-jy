@@ -1018,6 +1018,25 @@ function ConsultaCartonesPanel({ onVolver }) {
     setPersonaElegida(null);
   }
 
+  // "Jugar" desde la consulta por número: si la carta tiene dueño se juegan TODAS
+  // las cartas de esa persona (no solo la buscada). Si algo falla, se juega al
+  // menos la carta consultada.
+  async function jugarTodasDeLaPersona(res) {
+    const dueno = res.cartones[0]?.owner_id;
+    let cartones = res.cartones;
+    if (dueno) {
+      try {
+        const d = await apiFetch('/cartones/consulta-nombre?' + new URLSearchParams({ sorteo_id: res.sorteo.id, jugador_id: dueno }).toString());
+        const p = d.resultados && d.resultados[0];
+        if (p) {
+          const jugables = p.grupos.filter((g) => !(bloqueoCartonesPendientes && g.cartones[0]?.estado === 'vendido')).flatMap((g) => g.cartones);
+          if (jugables.length) cartones = jugables;
+        }
+      } catch (e) { /* se queda con la carta consultada */ }
+    }
+    setJugando({ cartones, sorteoId: res.sorteo.id, titulo: 'Mis cartas' });
+  }
+
   async function consultar(e) {
     e.preventDefault();
     setError('');
@@ -1148,8 +1167,8 @@ function ConsultaCartonesPanel({ onVolver }) {
               del DOM (no hereda el blur), así que mostraría el cartón limpio. */}
           {!(bloqueoCartonesPendientes && resultado.cartones[0]?.estado === 'vendido') && (
             <>
-            <Button className="w-full" onClick={() => setJugando({ cartones: resultado.cartones, sorteoId: resultado.sorteo.id, titulo: 'Carta ' + (resultado.cartones[0].grupo ?? resultado.cartones[0].numero) })}>
-              🎮 Jugar esta carta
+            <Button className="w-full" onClick={() => jugarTodasDeLaPersona(resultado)}>
+              🎮 {resultado.cartones[0]?.owner_id ? 'Jugar mis cartas' : 'Jugar esta carta'}
             </Button>
             <Button
               variant="ghost"

@@ -316,7 +316,9 @@ router.get('/consulta', (req, res) => {
 router.get('/consulta-nombre', (req, res) => {
   const sorteoId = Number(req.query.sorteo_id);
   const nombre = (req.query.nombre || '').trim();
-  if (!sorteoId || !nombre) {
+  // jugador_id (exacto) lo usa la consulta por NÚMERO para traer todas las cartas del dueño de esa carta.
+  const jugadorId = Number(req.query.jugador_id) || null;
+  if (!sorteoId || (!nombre && !jugadorId)) {
     return res.status(400).json({ error: 'Indica el sorteo y tu nombre' });
   }
   const sorteo = db.prepare('SELECT * FROM sorteos WHERE id = ?').get(sorteoId);
@@ -326,10 +328,10 @@ router.get('/consulta-nombre', (req, res) => {
     .prepare(
       `SELECT DISTINCT j.* FROM jugadores j
        JOIN cartones c ON c.owner_id = j.id AND c.sorteo_id = ?
-       WHERE j.nombre LIKE ? COLLATE NOCASE
+       WHERE ${jugadorId ? 'j.id = ?' : 'j.nombre LIKE ? COLLATE NOCASE'}
        ORDER BY j.nombre ASC LIMIT 20`
     )
-    .all(sorteoId, `%${nombre}%`);
+    .all(sorteoId, jugadorId || `%${nombre}%`);
 
   const resultados = jugadoresMatch.map((j) => {
     const rows = db
