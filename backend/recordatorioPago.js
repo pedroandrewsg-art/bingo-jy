@@ -1,5 +1,6 @@
 // recordatorioPago.js — Recordatorio de pago para jugadores con cartones
-// pendientes (estado 'vendido', sin verificar) vía notificación push (Web
+// pendientes (estado 'vendido', sin verificar, en un sorteo que todavía no ha
+// empezado: estatus 'activo') vía notificación push (Web
 // Push), configurable por el admin (activo/desactivado + texto, ver
 // routes/settings.js -> /recordatorio-pago). Corre en segundo plano cada
 // minuto: le llega al jugador aunque tenga el navegador minimizado o haya
@@ -35,7 +36,13 @@ function enviarRecordatorios() {
   if (getSetting('recordatorio_pago_activo') !== '1') return;
 
   const jugadoresPendientes = db
-    .prepare(`SELECT DISTINCT owner_id FROM cartones WHERE estado = 'vendido' AND owner_id IS NOT NULL`)
+    // Solo sorteos que aún no empiezan: una vez en juego (o finalizado/pausado)
+    // ya no se le recuerda pagar al jugador.
+    .prepare(
+      `SELECT DISTINCT c.owner_id FROM cartones c
+       JOIN sorteos s ON s.id = c.sorteo_id
+       WHERE c.estado = 'vendido' AND c.owner_id IS NOT NULL AND s.estatus = 'activo'`
+    )
     .all()
     .map((r) => r.owner_id);
   if (!jugadoresPendientes.length) return;

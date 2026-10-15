@@ -4,6 +4,7 @@ const db = require('../db');
 const { requireAuth, requireAdmin } = require('../authMiddleware');
 const { obtenerPlantillas } = require('../plantillas');
 const { listPatterns, checkPattern } = require('../patterns');
+const { armarEncabezado } = require('../encabezadoSorteo');
 const WHATSAPP_LIVE_DEFAULTS = require('../whatsappLiveDefaults');
 const { registrarLog, registrarLogAgrupado } = require('../logActividad');
 
@@ -85,6 +86,17 @@ function etiquetaConjunto(g) {
 }
 function etiquetaConjuntoEmoji(g) {
   return numeroAEmojis(g.grupo);
+}
+
+// Encabezado que realmente se usa en la Lista Completa: el generado con los
+// datos del sorteo si tiene activado "Usar la información del sorteo", y si no
+// el texto manual (que se conserva aunque se alterne la opción).
+function encabezadoEfectivo(sorteo) {
+  if (!sorteo.encabezado_auto) return sorteo.encabezado;
+  // Los montos por figura salen de computeStats (premio ya calculado según el
+  // modo: monto fijo, o % del premio acumulado).
+  const figuras = (computeStats(sorteo.id) || { figuras: [] }).figuras.map((f) => ({ label: f.label, premio: f.premio, porcentaje: f.porcentaje }));
+  return armarEncabezado(sorteo, figuras);
 }
 
 function computeStats(sorteoId) {
@@ -315,6 +327,8 @@ router.post('/', requireAuth, requireAdmin, (req, res) => {
     )
     .run(fecha_hora, desde, hasta, color, tipo_venta, costo, porcentaje_ganancia, modoPremio, figuras[0].patron, getSetting('default_encabezado'), getSetting('default_pie_pagina'), catalogoId, regaloDesde);
   const sorteoId = info.lastInsertRowid;
+  // "Usar la información del sorteo" en el encabezado de la lista de WhatsApp.
+  if (req.body.encabezado_auto) db.prepare('UPDATE sorteos SET encabezado_auto = 1 WHERE id = ?').run(sorteoId);
 
   const insertFigura = db.prepare('INSERT INTO sorteo_patrones (sorteo_id, patron, porcentaje, monto, orden) VALUES (?, ?, ?, ?, ?)');
   figuras.forEach((f, i) => insertFigura.run(sorteoId, f.patron, f.porcentaje || 0, f.monto != null ? f.monto : null, i));
@@ -347,13 +361,13 @@ router.put('/:id', requireAuth, requireAdmin, (req, res) => {
   const id = req.params.id;
   const existing = db.prepare('SELECT * FROM sorteos WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'No encontrado' });
-  const fields = ['fecha_hora', 'color', 'costo', 'porcentaje_ganancia', 'estatus', 'encabezado', 'pie_pagina', 'catalogo_imagenes_id'];
+  const fields = ['fecha_hora', 'color', 'costo', 'porcentaje_ganancia', 'estatus', 'encabezado', 'pie_pagina', 'catalogo_imagenes_id', 'encabezado_auto'];
   const updates = [];
   const values = [];
   fields.forEach((f) => {
     if (req.body[f] !== undefined) {
       updates.push(`${f} = ?`);
-      values.push(req.body[f]);
+      values.push(f === 'encabezado_auto' ? (req.body[f] ? 1 : 0) : req.body[f]);
     }
   });
   if (updates.length) {
@@ -627,7 +641,7 @@ router.get('/:id/lista-texto', requireAuth, requireAdmin, (req, res) => {
   const [normales, regalo] = separarEnDosGrupos(agruparPorConjunto(cartonesConDueno(req.params.id), sorteo.regalo_desde));
   let cuerpo = normales.map(lineaConjunto).join('\n');
   if (regalo.length) cuerpo += `\n\n${cfg.regalo_emoji} *${cfg.regalo_subtitulo}*\n` + regalo.map(lineaConjuntoRegalo).join('\n');
-  const texto = [sorteo.encabezado, '', cuerpo, '', sorteo.pie_pagina].filter((s) => s !== undefined).join('\n').trim();
+  const texto = [encabezadoEfectivo(sorteo), '', cuerpo, '', sorteo.pie_pagina].filter((s) => s !== undefined).join('\n').trim();
   res.json({ texto });
 });
 
@@ -670,7 +684,10 @@ router.get('/:id/whatsapp-live-datos', requireAuth, requireAdmin, (req, res) => 
       color: sorteo.color,
       fecha_hora: sorteo.fecha_hora,
       estatus: sorteo.estatus,
+      // encabezado = texto MANUAL; encabezado_efectivo = el que de verdad sale en la lista
       encabezado: sorteo.encabezado,
+      encabezado_auto: !!sorteo.encabezado_auto,
+      encabezado_efectivo: encabezadoEfectivo(sorteo),
       pie_pagina: sorteo.pie_pagina,
     },
     conjuntos,

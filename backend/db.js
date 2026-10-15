@@ -231,6 +231,11 @@ CREATE INDEX IF NOT EXISTS idx_logs_actividad_categoria ON logs_actividad(catego
 // Migración incremental: agrega columnas nuevas a `sorteos` si la tabla ya
 // existía de una versión anterior sin encabezado/pie_pagina.
 const sorteosInfo = db.prepare("PRAGMA table_info(sorteos)").all();
+// Encabezado de la Lista Completa: manual (texto libre, columna `encabezado`)
+// o automático a partir de los datos del sorteo (ver encabezadoSorteo.js).
+if (!sorteosInfo.some((c) => c.name === 'encabezado_auto')) {
+  db.exec("ALTER TABLE sorteos ADD COLUMN encabezado_auto INTEGER NOT NULL DEFAULT 0");
+}
 if (!sorteosInfo.some((c) => c.name === 'encabezado')) {
   db.exec("ALTER TABLE sorteos ADD COLUMN encabezado TEXT NOT NULL DEFAULT ''");
 }

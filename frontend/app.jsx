@@ -1593,7 +1593,7 @@ function AdminSorteos() {
   const [error, setError] = useState('');
   const [showEditorFigura, setShowEditorFigura] = useState(false);
 
-  const emptyForm = { fecha_hora: '', rango_desde: 1, rango_hasta: 100, cantidad_regalos: 0, color: 'Verde', tipo_venta: 1, costo: 1, porcentaje_ganancia: 30, modo_premio: 'porcentaje', figuras: [], catalogo_imagenes_id: '' };
+  const emptyForm = { fecha_hora: '', rango_desde: 1, rango_hasta: 100, cantidad_regalos: 0, color: 'Verde', tipo_venta: 1, costo: 1, porcentaje_ganancia: 30, modo_premio: 'porcentaje', figuras: [], catalogo_imagenes_id: '', encabezado_auto: true };
   const [form, setForm] = useState(emptyForm);
 
   function toggleFigura(key) {
@@ -1867,6 +1867,13 @@ function AdminSorteos() {
                 </div>
               )}
               <div className="md:col-span-2 text-xs text-slate-500 text-center">{grupos} cartas</div>
+            </div>
+
+            <div className="md:col-span-2 flex items-center gap-2">
+              <input type="checkbox" id="encabezado_auto_nuevo" checked={form.encabezado_auto} onChange={(e) => setForm({ ...form, encabezado_auto: e.target.checked })} className="accent-bingoaccent" />
+              <label htmlFor="encabezado_auto_nuevo" className="text-sm text-slate-300">
+                📋 Usar la información de este sorteo (nombre del bingo, fecha, costo y figuras con su monto) en el encabezado de la lista de WhatsApp — si lo desmarcas, escribes el encabezado tú a mano
+              </label>
             </div>
 
             {error && <div className="md:col-span-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{error}</div>}
@@ -3347,6 +3354,8 @@ function WhatsappLivePanel({ sorteoId }) {
   const [config, setConfig] = useState(null);
   const [encabezado, setEncabezado] = useState('');
   const [piePagina, setPiePagina] = useState('');
+  // "Usar la información del sorteo": el encabezado lo arma el servidor con los datos del sorteo.
+  const [encabezadoAuto, setEncabezadoAuto] = useState(false);
   const [estadoEncabezado, setEstadoEncabezado] = useState(''); // '', 'guardando', 'guardado', 'error'
   const skipNextAutosave = useRef(true);
   const [subTab, setSubTab] = useState('todo');
@@ -3376,6 +3385,7 @@ function WhatsappLivePanel({ sorteoId }) {
       if (primeraCarga) {
         setEncabezado(d.sorteo.encabezado || '');
         setPiePagina(d.sorteo.pie_pagina || '');
+        setEncabezadoAuto(!!d.sorteo.encabezado_auto);
         primeraCarga = false;
       }
     });
@@ -3410,15 +3420,26 @@ function WhatsappLivePanel({ sorteoId }) {
     if (skipNextAutosave.current) { skipNextAutosave.current = false; return; }
     setEstadoEncabezado('guardando');
     const t = setTimeout(() => {
-      apiFetch('/sorteos/' + sorteoId, { method: 'PUT', body: JSON.stringify({ encabezado, pie_pagina: piePagina }) })
+      apiFetch('/sorteos/' + sorteoId, { method: 'PUT', body: JSON.stringify({ encabezado, pie_pagina: piePagina, encabezado_auto: encabezadoAuto ? 1 : 0 }) })
+        .then(() => apiFetch(`/sorteos/${sorteoId}/whatsapp-live-datos`).then(setDatos))
         .then(() => { setEstadoEncabezado('guardado'); setTimeout(() => setEstadoEncabezado((s) => (s === 'guardado' ? '' : s)), 1500); })
         .catch(() => setEstadoEncabezado('error'));
     }, 800);
     return () => clearTimeout(t);
-  }, [encabezado, piePagina, sorteoId]);
+  }, [encabezado, piePagina, encabezadoAuto, sorteoId]);
 
   function setCampo(key, value) {
     setConfig((c) => ({ ...c, [key]: value }));
+  }
+
+  // Encabezado que realmente sale en la Lista Completa: el generado con los
+  // datos del sorteo (si la opción está activa) o el texto manual.
+  const encabezadoMostrado = encabezadoAuto ? (datos?.sorteo?.encabezado_efectivo || '') : encabezado;
+
+  // Pasa a escribirlo a mano partiendo del texto generado (no se pierde nada).
+  function pasarAManual() {
+    setEncabezado(datos?.sorteo?.encabezado_efectivo || encabezado);
+    setEncabezadoAuto(false);
   }
 
   async function guardarConfig() {
@@ -3427,7 +3448,7 @@ function WhatsappLivePanel({ sorteoId }) {
     try {
       const [actualizado] = await Promise.all([
         apiFetch('/settings/whatsapp-live', { method: 'PUT', body: JSON.stringify(config) }),
-        apiFetch('/sorteos/' + sorteoId, { method: 'PUT', body: JSON.stringify({ encabezado, pie_pagina: piePagina }) }),
+        apiFetch('/sorteos/' + sorteoId, { method: 'PUT', body: JSON.stringify({ encabezado, pie_pagina: piePagina, encabezado_auto: encabezadoAuto ? 1 : 0 }) }),
       ]);
       delete actualizado.ok;
       setConfig(actualizado);
@@ -3597,6 +3618,24 @@ function WhatsappLivePanel({ sorteoId }) {
 
         {!configMinimizada && (!config ? <Spinner /> : (
           <div className="space-y-4 mt-3">
+            <div className="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="encabezado_auto" checked={encabezadoAuto} onChange={(e) => setEncabezadoAuto(e.target.checked)} className="accent-bingoaccent" />
+                <label htmlFor="encabezado_auto" className="text-sm text-slate-200 font-semibold">
+                  📋 Usar la información del sorteo en el encabezado de la Lista Completa
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">
+                {encabezadoAuto
+                  ? 'Marcado: el encabezado se arma solo con el nombre del bingo, la fecha y hora, el costo y las figuras a jugar con su monto, y se actualiza si cambian. Desmárcalo para escribirlo tú.'
+                  : 'Sin marcar: el encabezado es el texto que escribas a mano abajo.'}
+              </p>
+              {encabezadoAuto && (
+                <div>
+                  <Button variant="ghost" className="!py-2 !text-xs" onClick={pasarAManual}>✏️ Pasar a manual (copiar este texto y editarlo)</Button>
+                </div>
+              )}
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <div className="flex items-center justify-between">
@@ -3605,8 +3644,10 @@ function WhatsappLivePanel({ sorteoId }) {
                   {estadoEncabezado === 'guardado' && <span className="text-[11px] text-emerald-400">✓ Guardado</span>}
                   {estadoEncabezado === 'error' && <span className="text-[11px] text-red-400">Error al guardar</span>}
                 </div>
-                <textarea rows={5} value={encabezado} onChange={(e) => setEncabezado(e.target.value)}
-                  placeholder="Ej: *BINGO MORADO — Hoy 8pm*" className={textareaClass} />
+                <textarea rows={5} value={encabezadoMostrado} onChange={(e) => setEncabezado(e.target.value)}
+                  readOnly={encabezadoAuto}
+                  placeholder="Ej: *BINGO MORADO — Hoy 8pm*" className={`${textareaClass} ${encabezadoAuto ? 'opacity-70 cursor-not-allowed' : ''}`} />
+                {encabezadoAuto && <p className="text-xs text-emerald-400 mt-1">🔒 Generado con la información del sorteo.</p>}
               </div>
               <div>
                 <Label>Pie de página — Todo (de este sorteo)</Label>
