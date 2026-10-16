@@ -1356,7 +1356,7 @@ function AuthScreen() {
   // Cartones" con un link tipo ?ver=lista o ?ver=consulta
   const [mode, setMode] = useState(() => {
     const v = new URLSearchParams(window.location.search).get('ver');
-    return v === 'lista' || v === 'consulta' ? v : 'inicio';
+    return v === 'consulta' ? v : 'inicio';
   }); // 'inicio' | 'admin' | 'lista' | 'consulta'
   const [adminForm, setAdminForm] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
@@ -1407,20 +1407,6 @@ function AuthScreen() {
               <h2 className="text-center font-black text-xl mb-1 text-rose-100">¡Bienvenido! 🎉</h2>
               <p className="text-center text-xs text-slate-400 mb-5">¿Qué quieres hacer hoy?</p>
               <div className="grid gap-4">
-                <button
-                  type="button"
-                  onClick={() => setMode('lista')}
-                  className="group text-left rounded-2xl p-4 shadow-lg hover:-translate-y-0.5 active:scale-95 transition-all"
-                  style={{ background: 'linear-gradient(135deg, #fdba74, #fb923c)' }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl drop-shadow group-hover:scale-110 transition-transform">🔍</span>
-                    <div>
-                      <div className="font-bold text-white leading-tight">Verifícate en la Lista</div>
-                      <div className="text-xs text-white/80">Revisa si ya estás anotado para el próximo sorteo</div>
-                    </div>
-                  </div>
-                </button>
                 <button
                   type="button"
                   onClick={() => setMode('consulta')}
