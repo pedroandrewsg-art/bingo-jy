@@ -25,6 +25,13 @@ function montoEmoji(n) {
   return `Bs ${conEmojis(Number.isInteger(v) ? v : v.toFixed(2))}`;
 }
 
+// Monto de un PREMIO con números normales (50, 37.50): los dígitos en emoji se cortan al
+// publicar el texto en WhatsApp, así que los premios van sin emoji.
+function montoNormal(n) {
+  const v = Number(n) || 0;
+  return `Bs ${Number.isInteger(v) ? v : v.toFixed(2)}`;
+}
+
 // fecha_hora viene como "YYYY-MM-DDTHH:mm" sin zona: se interpreta tal cual,
 // sin convertir (la hora que escribió el admin es la que se muestra).
 function fechaHoraTexto(fechaHora) {
@@ -49,8 +56,8 @@ function armarEncabezado(sorteo, figuras) {
   // en vez de dejar la figura sin premio al lado.
   const textoPremio = (f) => {
     if (sorteo.modo_premio !== 'sin_premio') {
-      if (f.premio > 0) return montoEmoji(f.premio);
-      if (sorteo.modo_premio === 'porcentaje' && f.porcentaje > 0) return `${conEmojis(f.porcentaje)}% del premio`;
+      if (f.premio > 0) return montoNormal(f.premio);
+      if (sorteo.modo_premio === 'porcentaje' && f.porcentaje > 0) return `${f.porcentaje}% del premio`;
     }
     return 'premio por definir';
   };
