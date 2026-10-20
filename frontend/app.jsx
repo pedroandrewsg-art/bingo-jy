@@ -793,15 +793,30 @@ function MarcaVisual({ marca }) {
     position: 'absolute', left: marca.x + '%', top: marca.y + '%', width: marca.s + '%',
     aspectRatio: '1 / 1', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
   };
+  // Luz: resplandor transparente que sale de la marca e ilumina la casilla completa (una casilla mide ~1/5 del ancho del
+  // cartón; el resplandor es mayor para que llegue también a sus esquinas). Va debajo de la marca y no recibe toques.
+  const luz = {
+    position: 'absolute', left: marca.x + '%', top: marca.y + '%', width: Math.min(Math.max(marca.s * 3.2, 32), 38) + '%',
+    aspectRatio: '1 / 1', transform: 'translate(-50%, -50%)', pointerEvents: 'none', borderRadius: '50%',
+    background: `radial-gradient(circle, rgba(${color},0.5) 0%, rgba(${color},0.28) 40%, rgba(${color},0.13) 62%, rgba(${color},0.04) 82%, rgba(${color},0) 100%)`,
+  };
   if (marca.t === 'check' || marca.t === 'equis') {
     const d = marca.t === 'check' ? 'M18 52 L42 76 L84 24' : 'M20 20 L80 80 M80 20 L20 80';
     return (
-      <svg viewBox="0 0 100 100" style={base}>
-        <path d={d} fill="none" stroke={`rgba(${color},0.6)`} strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <>
+        <div style={luz} />
+        <svg viewBox="0 0 100 100" style={{ ...base, filter: `drop-shadow(0 0 5px rgba(${color},0.95))` }}>
+          <path d={d} fill="none" stroke={`rgba(${color},0.6)`} strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </>
     );
   }
-  return <div style={{ ...base, borderRadius: '50%', background: `rgba(${color},0.38)`, border: `2px solid rgba(${color},0.75)` }} />;
+  return (
+    <>
+      <div style={luz} />
+      <div style={{ ...base, borderRadius: '50%', background: `rgba(${color},0.38)`, border: `2px solid rgba(${color},0.75)`, boxShadow: `0 0 10px 3px rgba(${color},0.6)` }} />
+    </>
+  );
 }
 
 function JugarCartaOverlay({ cartones, sorteoId, titulo, figuras, onCerrar }) {
