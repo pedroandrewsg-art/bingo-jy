@@ -55,6 +55,25 @@ app.get('/uploads/logo/:filename', async (req, res) => {
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 
+// Página de invitación al grupo de WhatsApp (para el enlace de la publicidad de Facebook): /grupo
+// Se arma al pedirla para poner el logo del sistema (el subido en Configuración) y las URLs completas de la vista previa
+// que muestran Facebook y WhatsApp al compartir el enlace.
+app.get('/grupo', (req, res) => {
+  try {
+    const db = require('./db');
+    const fila = db.prepare("SELECT value FROM settings WHERE key = 'logo_path'").get();
+    const logo = (fila && fila.value) || '/logo.png';
+    const host = 'https://' + req.get('host');
+    const html = fs.readFileSync(path.join(__dirname, 'paginas/grupo.html'), 'utf8')
+      .replace(/__LOGO_ABS__/g, logo.startsWith('http') ? logo : host + logo)
+      .replace(/__LOGO__/g, logo)
+      .replace(/__URL__/g, host + '/grupo');
+    res.set('Cache-Control', 'public, max-age=300').type('html').send(html);
+  } catch (e) {
+    res.status(500).send('No se pudo cargar la página');
+  }
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/sorteos', sorteosRoutes);
 app.use('/api/cartones', cartonesRoutes);
