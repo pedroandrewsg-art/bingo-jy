@@ -1576,6 +1576,49 @@ function CustomPatternEditor({ onClose, onCreated }) {
 // para revisar todo antes de crear. Los pasos se arman según los campos que tenga el formulario de este sistema
 // (nombre, catálogo o color, combos, premios, regalos, ventas...), así que cada sistema pregunta solo lo suyo.
 // ---------------------------------------------------------------------------
+// Marco del asistente: ocupa la pantalla (en celular, toda) y deja el contenido en tres zonas fijas: arriba el avance,
+// en medio la pregunta y abajo los botones. Nada se desplaza: la pregunta se achica sola si no cabe (ver CuerpoAjustado).
+function MarcoAsistente({ onCerrar, children }) {
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-0 sm:p-4">
+      <div className="relative bg-slate-900 border border-bingopurple/40 sm:rounded-2xl shadow-glow p-4 w-full max-w-xl h-[100dvh] sm:h-[min(calc(100dvh-2rem),780px)] flex flex-col pop-in">
+        <button type="button" onClick={onCerrar} aria-label="Cerrar" className="absolute top-2 right-3 text-slate-400 hover:text-white text-3xl leading-none z-10">&times;</button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Zona de la pregunta: mide su contenido y, si es más alto que el espacio disponible, lo reduce (hasta 60%) para que
+// siempre quepa en pantalla sin tener que desplazarse. Solo si aun así no cabe (pantallas muy chicas) permite desplazar.
+function CuerpoAjustado({ children }) {
+  const caja = React.useRef(null);
+  const cont = React.useRef(null);
+  const ajustar = () => {
+    const c = caja.current, k = cont.current;
+    if (!c || !k) return;
+    const disponible = c.clientHeight, alto = k.offsetHeight; // el alto "natural" no cambia al escalar (solo se transforma)
+    let esc = 1;
+    if (alto > disponible && disponible > 0) esc = Math.max(0.5, disponible / alto);
+    k.style.transform = esc < 1 ? `scale(${esc})` : 'none';
+    c.style.overflowY = alto * esc > disponible + 2 ? 'auto' : 'hidden';
+    c.dataset.escala = esc.toFixed(2);
+  };
+  React.useLayoutEffect(ajustar);
+  React.useEffect(() => {
+    window.addEventListener('resize', ajustar);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(ajustar) : null;
+    if (ro) { ro.observe(cont.current); ro.observe(caja.current); }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustar);
+    return () => { window.removeEventListener('resize', ajustar); if (ro) ro.disconnect(); };
+  }, []);
+  return (
+    <div ref={caja} data-cuerpo-ajustado="1" className="flex-1 min-h-0 overflow-hidden">
+      <div ref={cont} style={{ transformOrigin: 'top center' }}>{children}</div>
+    </div>
+  );
+}
+
 function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, setFiguraPorcentaje, setFiguraMonto, cambiarModoPremio, moverFigura, onCrearFigura, onCancelar, onCrear, error, creando }) {
   const [paso, setPaso] = useState(0);
   const [aviso, setAviso] = useState('');
@@ -1597,6 +1640,8 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   const tieneCombos = !tieneCatalogo && 'tipo_venta' in form && combosSistema.length > 1;
   const tieneVentas = 'ventas_habilitadas' in form;
   const tieneOculto = 'oculto' in form;
+  const tieneMatador = form.figuras.some((f) => f.patron === 'carton_lleno_picado' && 'numero_compatible' in f);
+  const numeroMatador = (form.figuras.find((f) => f.patron === 'carton_lleno_picado') || {}).numero_compatible;
   const tieneGanancia = 'porcentaje_ganancia' in form; // algunos sistemas ya no manejan % de ganancia
   const tieneModo = typeof cambiarModoPremio === 'function'; // ni elegir el modo de premio (solo monto fijo)
   const regaloTipo = 'regalo_catalogo_id' in form ? 'catalogo' : 'regalo_desde' in form ? 'rango' : 'cantidad_regalos' in form ? 'cantidad' : null;
@@ -1611,7 +1656,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
     ...(tieneCatalogo ? ['catalogo'] : []),
     ...(tieneColor ? ['color'] : []),
     ...(tieneCombos ? ['combos'] : []),
-    'cantidad', 'costo', ...(tieneGanancia ? ['ganancia'] : []), ...(tieneModo ? ['modo'] : []), 'figuras',
+    'cantidad', 'costo', ...(tieneGanancia ? ['ganancia'] : []), ...(tieneModo ? ['modo'] : []), 'figuras', ...(tieneMatador ? ['matador'] : []),
     ...(form.modo_premio !== 'sin_premio' && form.figuras.length ? ['premios_fig'] : []),
     ...(moverFigura && form.figuras.length > 1 ? ['orden'] : []),
     ...(regaloTipo === 'catalogo' ? ['regalo', ...(form.regalo_activo ? ['regalo_catalogo', 'regalo_cada'] : [])] : []),
@@ -1677,6 +1722,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
     if (clave === 'costo' && (form.costo === '' || Number(form.costo) < 0 || Number.isNaN(Number(form.costo)))) return 'Escriba cuánto cuesta (puede ser 0).';
     if (clave === 'ganancia' && (form.porcentaje_ganancia === '' || Number(form.porcentaje_ganancia) < 0 || Number(form.porcentaje_ganancia) > 100)) return 'Escriba un porcentaje entre 0 y 100.';
     if (clave === 'figuras' && !form.figuras.length) return 'Toque al menos una figura para jugar.';
+    if (clave === 'matador' && !(Number.isInteger(Number(numeroMatador)) && Number(numeroMatador) >= 1 && Number(numeroMatador) <= 75 && numeroMatador !== '')) return 'Escriba un número del 1 al 75 para el Matador.';
     if (clave === 'premios_fig') {
       if (form.modo_premio === 'porcentaje' && sumaPorcentaje !== 100) return `Los porcentajes deben sumar 100 (ahora suman ${sumaPorcentaje}).`;
       if (form.modo_premio === 'monto_fijo' && form.figuras.some((f) => !(Number(f.monto) > 0))) return 'Cada figura necesita un monto mayor a 0.';
@@ -1701,10 +1747,11 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   function irA(k) { const i = pasos.indexOf(k); if (i >= 0) { setAviso(''); setPaso(i); } }
   function responderSiNo(campo, valor) { setForm((x) => ({ ...x, [campo]: valor })); setAviso(''); setPaso(indice + 1); }
   function alEnter(e) { if (e.key === 'Enter') { e.preventDefault(); siguiente(); } }
+  function ponerNumeroMatador(v) { setForm((x) => ({ ...x, figuras: x.figuras.map((f) => (f.patron === 'carton_lleno_picado' ? { ...f, numero_compatible: v === '' ? '' : Number(v) } : f)) })); }
   function ponerNumero(campo, valor) { setForm((x) => ({ ...x, [campo]: valor })); }
 
-  const titulo = 'text-2xl sm:text-3xl font-black text-slate-100 leading-tight text-center';
-  const ayuda = 'text-base sm:text-lg text-slate-400 text-center mt-2';
+  const titulo = 'text-xl sm:text-3xl font-black text-slate-100 leading-tight text-center';
+  const ayuda = 'text-sm sm:text-lg text-slate-400 text-center mt-1';
   const campoGrande = 'w-full bg-slate-800/70 border-2 border-slate-600 focus:border-bingoaccent focus:outline-none rounded-xl px-4 py-4 text-2xl font-bold text-center text-slate-100';
   const botonGrande = 'w-full py-4 text-xl rounded-2xl';
   const tarjetaOpcion = (activa) => `w-full text-left rounded-2xl border-2 px-4 py-4 transition active:scale-[0.98] ${activa ? 'border-bingoaccent bg-bingopurple/20' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'}`;
@@ -1713,7 +1760,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   function ListaCatalogos({ lista, valor, onElegir, vacio }) {
     if (!lista.length) return <p className="text-lg text-amber-400 text-center">{vacio}</p>;
     return (
-      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+      <div className="space-y-3">
         {lista.map((c) => {
           const activa = String(valor) === String(c.id);
           return (
@@ -1731,11 +1778,19 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       </div>
     );
   }
-  function Opciones({ lista, valor, onElegir }) {
+  function Opciones({ lista, valor, onElegir, columnas = 1 }) {
+    const compacto = columnas > 1;
     return (
-      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+      <div className={compacto ? 'grid grid-cols-3 gap-2' : 'space-y-3'}>
         {lista.map((o) => {
           const activa = String(valor) === String(o.valor);
+          if (compacto) {
+            return (
+              <button type="button" key={o.valor} onClick={() => { onElegir(o.valor); setAviso(''); }} className={`rounded-xl border-2 px-2 py-2 text-center text-base font-extrabold text-slate-100 transition active:scale-[0.97] ${activa ? 'border-bingoaccent bg-bingopurple/20' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'}`}>
+                <span className={activa ? '' : 'opacity-30'}>{activa ? '✅' : '⬜'}</span> {o.titulo}
+              </button>
+            );
+          }
           return (
             <button type="button" key={o.valor} onClick={() => { onElegir(o.valor); setAviso(''); }} className={tarjetaOpcion(activa)}>
               <div className="flex items-center gap-3">
@@ -1753,7 +1808,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   }
   function SiNo({ campo, pregunta, ayudaTexto, emoji }) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <h3 className={titulo}>{pregunta}</h3>
         {ayudaTexto && <p className={ayuda}>{ayudaTexto}</p>}
         <div className="grid grid-cols-2 gap-3">
@@ -1764,13 +1819,13 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       </div>
     );
   }
-  const fila = (etiqueta, valor, paraCambiar) => (
-    <div className="flex items-start justify-between gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
-      <div>
-        <div className="text-sm uppercase tracking-wide text-slate-400">{etiqueta}</div>
-        <div className="text-lg font-bold text-slate-100">{valor}</div>
+  const fila = (etiqueta, valor, paraCambiar, ancho) => (
+    <div className={`flex flex-col bg-slate-800/40 rounded-xl px-3 py-2 ${ancho ? 'col-span-2' : ''}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs uppercase tracking-wide text-slate-400">{etiqueta}</div>
+        {paraCambiar && <button type="button" onClick={() => irA(paraCambiar)} className="shrink-0 text-sm font-bold text-bingoaccent underline">Cambiar</button>}
       </div>
-      {paraCambiar && <button type="button" onClick={() => irA(paraCambiar)} className="shrink-0 text-base font-bold text-bingoaccent underline">Cambiar</button>}
+      <div className="text-base font-bold text-slate-100 leading-snug">{valor}</div>
     </div>
   );
 
@@ -1781,11 +1836,11 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   const ultimo = clave === 'resumen';
   const sinOpciones = (clave === 'catalogo' && !normales.length) || (clave === 'regalo_catalogo' && !deRegalo.length);
   const esSiNo = ['regalo', 'ventas', 'oculto'].includes(clave);
-  const conEnter = ['nombre', 'fecha', 'cantidad', 'costo', 'ganancia', 'regalo_rango', 'regalo_cada', 'regalo_cantidad'].includes(clave);
+  const conEnter = ['nombre', 'fecha', 'matador', 'cantidad', 'costo', 'ganancia', 'regalo_rango', 'regalo_cada', 'regalo_cantidad'].includes(clave);
 
   return (
-    <div className="space-y-5" onKeyDown={conEnter ? alEnter : undefined}>
-      <div>
+    <div className="flex flex-col h-full min-h-0 gap-3" onKeyDown={conEnter ? alEnter : undefined}>
+      <div className="shrink-0 pr-8">
         <div className="flex items-center justify-between text-base font-bold text-slate-300 mb-1">
           <span>Paso {indice + 1} de {pasos.length}</span>
           <span className="text-slate-500">Nuevo sorteo</span>
@@ -1793,8 +1848,9 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
         <div className="h-3 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-gradient-to-r from-bingopurple to-bingoaccent transition-all" style={{ width: `${((indice + 1) / pasos.length) * 100}%` }} /></div>
       </div>
 
+      <CuerpoAjustado>
       {clave === 'nombre' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Quiere ponerle un nombre al sorteo?</h3>
           <p className={ayuda}>Es opcional. Sirve para reconocerlo si tiene más de uno. Por ejemplo: "Sorteo de las 3pm". Si no quiere, toque "Siguiente".</p>
           <input type="text" className={campoGrande} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Sorteo de las 3pm" autoFocus />
@@ -1802,7 +1858,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'fecha' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Qué día y a qué hora es el sorteo?</h3>
           <p className={ayuda}>Toque el día y luego la hora.</p>
           <div>
@@ -1826,7 +1882,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'catalogo' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Con qué cartones van a jugar?</h3>
           <p className={ayuda}>Toque el grupo de cartones que quiere usar.</p>
           <ListaCatalogos
@@ -1839,15 +1895,15 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'color' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿De qué color son los cartones?</h3>
           <p className={ayuda}>Toque el color.</p>
-          <Opciones lista={coloresSistema.map((c) => ({ valor: c, titulo: c }))} valor={form.color} onElegir={(v) => setForm((x) => ({ ...x, color: v }))} />
+          <Opciones columnas={3} lista={coloresSistema.map((c) => ({ valor: c, titulo: c }))} valor={form.color} onElegir={(v) => setForm((x) => ({ ...x, color: v }))} />
         </div>
       )}
 
       {clave === 'combos' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Cómo se vende: un cartón o en combo?</h3>
           <p className={ayuda}>Un combo son varios cartones juntos por un solo precio.</p>
           <Opciones lista={combosSistema.map((c) => ({ valor: c, titulo: c === 1 ? '1 cartón' : `Combo de ${c} cartones` }))} valor={form.tipo_venta} onElegir={(v) => setForm((x) => ({ ...x, tipo_venta: Number(v) }))} />
@@ -1855,7 +1911,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'cantidad' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Cuántos {unidad} va a vender?</h3>
           <p className={ayuda}>
             {maxCartones != null ? `Ese grupo tiene ${maxCartones} cartones. ` : ''}Se numeran desde el {desdeNum} hasta el número que escriba.
@@ -1872,7 +1928,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'costo' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>{combo ? '¿Cuánto cuesta cada combo?' : '¿Cuánto cuesta cada cartón?'}</h3>
           <p className={ayuda}>Escriba el precio en bolívares (Bs).</p>
           <div className="flex items-center gap-3">
@@ -1883,7 +1939,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'ganancia' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Qué porcentaje es su ganancia?</h3>
           <p className={ayuda}>Es lo que usted se queda de lo vendido. El resto se reparte en premios.</p>
           <div className="flex items-center gap-3">
@@ -1899,7 +1955,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'modo' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Cómo se definen los premios?</h3>
           <p className={ayuda}>Toque una opción.</p>
           <Opciones
@@ -1915,19 +1971,19 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'figuras' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Qué figuras se van a jugar?</h3>
           <p className={ayuda}>Toque cada figura que quiere jugar. Puede elegir varias.</p>
-          <div className="grid sm:grid-cols-2 gap-3 max-h-[45vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-3 gap-2">
             {patrones.map((p) => {
               const activa = form.figuras.some((f) => f.patron === p.key);
               return (
-                <button type="button" key={p.key} onClick={() => { toggleFigura(p.key); setAviso(''); }} className={tarjetaOpcion(activa)}>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-3xl ${activa ? '' : 'opacity-30'}`}>{activa ? '✅' : '⬜'}</span>
-                    <PatternGrid mask={p.preview} size={16} badge={badgeFig(p.key)} />
-                    <span className="text-lg font-extrabold text-slate-100">{p.label}</span>
+                <button type="button" key={p.key} onClick={() => { toggleFigura(p.key); setAviso(''); }} className={`w-full rounded-xl border-2 px-1 py-2 text-center transition active:scale-[0.97] ${activa ? 'border-bingoaccent bg-bingopurple/20' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'}`}>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className={`text-xl ${activa ? '' : 'opacity-30'}`}>{activa ? '✅' : '⬜'}</span>
+                    <PatternGrid mask={p.preview} size={12} badge={badgeFig(p.key)} />
                   </div>
+                  <div className="text-sm font-extrabold text-slate-100 leading-tight mt-1">{p.label}</div>
                 </button>
               );
             })}
@@ -1937,8 +1993,16 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
         </div>
       )}
 
+      {clave === 'matador' && (
+        <div className="space-y-3">
+          <h3 className={titulo}>¿Cuál es el número del Matador?</h3>
+          <p className={ayuda}>Escriba un número del 1 al 75. Si ese número sale antes de que alguien complete el Cartón Lleno, el Matador se cierra solo. Después, el Matador se gana justo con ese número.</p>
+          <input type="number" inputMode="numeric" min="1" max="75" className={campoGrande} value={numeroMatador} onChange={(e) => ponerNumeroMatador(e.target.value)} placeholder="Ej: 7" autoFocus />
+        </div>
+      )}
+
       {clave === 'premios_fig' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>{form.modo_premio === 'porcentaje' ? '¿Qué porcentaje gana cada figura?' : '¿Cuántos bolívares gana cada figura?'}</h3>
           <p className={ayuda}>{form.modo_premio === 'porcentaje' ? 'Los porcentajes de todas las figuras deben sumar 100.' : 'Escriba el monto de cada figura.'}</p>
           <div className="space-y-3">
@@ -1963,7 +2027,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'orden' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿En qué orden se juegan las figuras?</h3>
           <p className={ayuda}>Se juega una figura a la vez, de arriba hacia abajo. Use las flechas para cambiar el orden.</p>
           <div className="space-y-3">
@@ -1989,7 +2053,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'regalo_catalogo' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Qué cartones va a regalar?</h3>
           <p className={ayuda}>Toque el grupo de cartones de regalo.</p>
           <ListaCatalogos
@@ -2002,7 +2066,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'regalo_rango' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Cuáles cartas se regalan?</h3>
           <p className={ayuda}>Las cartas de venta son de la {desdeNum} a la {ultimoNumero}. Lo normal es regalar las que siguen: por ejemplo de la {ultimoNumero + 1} a la {ultimoNumero + 10}.</p>
           <div className="grid grid-cols-2 gap-3">
@@ -2022,7 +2086,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'regalo_cada' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>{regaloTipo === 'rango' ? '¿Cada cuántas cartas pagadas regala una?' : '¿Cada cuántos cartones pagados regala uno?'}</h3>
           <p className={ayuda}>Por ejemplo, escriba 3 para regalar uno por cada 3 pagados.</p>
           <input
@@ -2041,7 +2105,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       )}
 
       {clave === 'regalo_cantidad' && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h3 className={titulo}>¿Cuántos cartones de regalo?</h3>
           <p className={ayuda}>Son los que siguen a los de venta: si vende del {desdeNum} al {cantidad}, el primer regalo es el {cantidad + 1}. Escriba 0 si no hay regalos.</p>
           <input type="number" inputMode="numeric" min="0" step="1" className={campoGrande} value={form.cantidad_regalos} onChange={(e) => setForm({ ...form, cantidad_regalos: e.target.value })} placeholder="0" autoFocus />
@@ -2074,31 +2138,35 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
         <div className="space-y-3">
           <h3 className={titulo}>Revise que todo esté bien</h3>
           <p className={ayuda}>Si algo no está bien, toque "Cambiar". Si todo está bien, toque el botón verde.</p>
+          <div className="grid grid-cols-2 gap-2">
           {tieneNombre && fila('Nombre', form.nombre || '(sin nombre)', 'nombre')}
-          {fila('Día y hora', textoFecha(), 'fecha')}
-          {tieneCatalogo && fila('Cartones', catalogo ? `${catalogo.nombre} (color ${catalogo.color})` : '—', 'catalogo')}
+          {fila('Día y hora', textoFecha(), 'fecha', true)}
+          {tieneCatalogo && fila('Cartones', catalogo ? `${catalogo.nombre} (color ${catalogo.color})` : '—', 'catalogo', true)}
           {tieneColor && fila('Color', form.color, 'color')}
           {tieneCombos && fila('Venta', Number(form.tipo_venta) === 1 ? '1 cartón' : `Combo de ${form.tipo_venta} cartones`, 'combos')}
           {fila('Cantidad a vender', `${cantidad} ${unidad} (del ${desdeNum} al ${cantidad})`, 'cantidad')}
           {fila(combo ? 'Precio de cada combo' : 'Precio de cada cartón', `Bs ${form.costo}`, 'costo')}
           {tieneGanancia && fila('Su ganancia', `${form.porcentaje_ganancia}%`, 'ganancia')}
           {tieneModo && fila('Premios', textoModo, 'modo')}
-          {fila('Figuras', etiquetasFiguras.join(', ') || '—', 'figuras')}
-          {textoPremiosFig && fila('Premio de cada figura', textoPremiosFig, 'premios_fig')}
-          {regaloTipo === 'catalogo' && fila('Regalos', form.regalo_activo ? `Sí: 1 cada ${form.regalo_compra_cantidad} pagados${catRegalo ? ` (${catRegalo.nombre})` : ''}` : 'No', 'regalo')}
-          {regaloTipo === 'rango' && fila('Regalos', form.regalo_activo ? `Sí: de la carta ${form.regalo_desde} a la ${form.regalo_hasta}, 1 cada ${form.regalo_cada} pagadas` : 'No', 'regalo')}
+          {fila('Figuras', etiquetasFiguras.join(', ') || '—', 'figuras', true)}
+          {tieneMatador && fila('Número del Matador', numeroMatador, 'matador')}
+          {textoPremiosFig && fila('Premio de cada figura', textoPremiosFig, 'premios_fig', true)}
+          {regaloTipo === 'catalogo' && fila('Regalos', form.regalo_activo ? `Sí: 1 cada ${form.regalo_compra_cantidad} pagados${catRegalo ? ` (${catRegalo.nombre})` : ''}` : 'No', 'regalo', true)}
+          {regaloTipo === 'rango' && fila('Regalos', form.regalo_activo ? `Sí: de la carta ${form.regalo_desde} a la ${form.regalo_hasta}, 1 cada ${form.regalo_cada} pagadas` : 'No', 'regalo', true)}
           {regaloTipo === 'cantidad' && fila('Regalos', Number(form.cantidad_regalos) > 0 ? `${form.cantidad_regalos} cartones (del ${cantidad + 1} al ${cantidad + Number(form.cantidad_regalos)})` : 'Ninguno', 'regalo_cantidad')}
           {tieneVentas && fila('Ventas', form.ventas_habilitadas ? 'Abiertas desde ya' : 'Cerradas (las abre usted después)', 'ventas')}
           {tieneOculto && fila('Visible para los jugadores', form.oculto ? 'No (desactivado)' : 'Sí', 'oculto')}
+          </div>
         </div>
       )}
 
       {(aviso || error) && (
-        <div className="text-lg font-bold text-red-300 bg-red-500/10 border-2 border-red-500/40 rounded-xl px-4 py-3 text-center">{aviso || error}</div>
+        <div className="mt-3 text-lg font-bold text-red-300 bg-red-500/10 border-2 border-red-500/40 rounded-xl px-4 py-3 text-center">{aviso || error}</div>
       )}
+      </CuerpoAjustado>
 
       {!esSiNo && (
-        <div className="flex gap-3 pt-1">
+        <div className="flex gap-3 pt-1 shrink-0">
           {indice > 0 ? (
             <Button variant="ghost" className="flex-1 py-4 text-xl rounded-2xl" onClick={atras}>← Atrás</Button>
           ) : (
@@ -2112,7 +2180,7 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
         </div>
       )}
       {esSiNo && (
-        <div className="flex gap-3 pt-1">
+        <div className="flex gap-3 pt-1 shrink-0">
           <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={atras}>← Atrás</Button>
           <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={onCancelar}>Cancelar</Button>
         </div>
@@ -2253,7 +2321,7 @@ function AdminSorteos() {
       </div>
 
       {showForm && (
-        <Modal title="Crear sorteo" onClose={() => { setShowForm(false); setError(''); }}>
+        <MarcoAsistente onCerrar={() => { setShowForm(false); setError(''); }}>
           <AsistenteSorteo
             form={form}
             setForm={setForm}
@@ -2269,7 +2337,7 @@ function AdminSorteos() {
             error={error}
             creando={creando}
           />
-        </Modal>
+        </MarcoAsistente>
       )}
 
       {showEditorFigura && (
