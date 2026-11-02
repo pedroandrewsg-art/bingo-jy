@@ -1576,12 +1576,13 @@ function CustomPatternEditor({ onClose, onCreated }) {
 // para revisar todo antes de crear. Los pasos se arman según los campos que tenga el formulario de este sistema
 // (nombre, catálogo o color, combos, premios, regalos, ventas...), así que cada sistema pregunta solo lo suyo.
 // ---------------------------------------------------------------------------
-// Marco del asistente: ocupa la pantalla (en celular, toda) y deja el contenido en tres zonas fijas: arriba el avance,
-// en medio la pregunta y abajo los botones. Nada se desplaza: la pregunta se achica sola si no cabe (ver CuerpoAjustado).
+// Marco del asistente: ocupa la pantalla (en celular, toda; en computadora, un panel grande) y deja el contenido en tres
+// zonas fijas: arriba el avance, en medio la pregunta y abajo los botones. Nada se desplaza: la pregunta se ajusta sola
+// (ver CuerpoAjustado).
 function MarcoAsistente({ onCerrar, children }) {
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-0 sm:p-4">
-      <div className="relative bg-slate-900 border border-bingopurple/40 sm:rounded-2xl shadow-glow p-4 w-full max-w-xl h-[100dvh] sm:h-[min(calc(100dvh-2rem),780px)] flex flex-col pop-in">
+      <div className="relative bg-slate-900 border border-bingopurple/40 sm:rounded-2xl shadow-glow p-4 sm:p-6 w-full sm:max-w-3xl h-[100dvh] sm:h-[min(calc(100dvh-2rem),920px)] flex flex-col pop-in">
         <button type="button" onClick={onCerrar} aria-label="Cerrar" className="absolute top-2 right-3 text-slate-400 hover:text-white text-3xl leading-none z-10">&times;</button>
         {children}
       </div>
@@ -1589,32 +1590,51 @@ function MarcoAsistente({ onCerrar, children }) {
   );
 }
 
-// Zona de la pregunta: mide su contenido y, si es más alto que el espacio disponible, lo reduce (hasta 60%) para que
-// siempre quepa en pantalla sin tener que desplazarse. Solo si aun así no cabe (pantallas muy chicas) permite desplazar.
+// Zona de la pregunta: mide su contenido y lo ajusta al espacio disponible. Si es más alto que el espacio, lo reduce (hasta
+// 50%); si sobra espacio, lo AGRANDA (hasta 1.4 veces) para que en computadora no se vea chico. Solo si aun reducido no cabe
+// (pantallas muy chicas) permite desplazar.
 function CuerpoAjustado({ children }) {
   const caja = React.useRef(null);
   const cont = React.useRef(null);
   const ajustar = () => {
     const c = caja.current, k = cont.current;
     if (!c || !k) return;
-    const disponible = c.clientHeight, alto = k.offsetHeight; // el alto "natural" no cambia al escalar (solo se transforma)
+    const disponible = c.clientHeight;
+    if (!(disponible > 0)) return;
+    k.style.transform = 'none'; k.style.width = '100%';
+    let alto = k.offsetHeight;
     let esc = 1;
-    if (alto > disponible && disponible > 0) esc = Math.max(0.5, disponible / alto);
-    k.style.transform = esc < 1 ? `scale(${esc})` : 'none';
+    if (alto > disponible) {
+      esc = Math.max(0.5, disponible / alto);
+      k.style.transform = `scale(${esc})`;
+      k.style.width = `${100 / esc}%`; // usa todo el ancho al reducir
+    } else {
+      for (const e of [1.4, 1.3, 1.2, 1.1]) { // al agrandar, el contenido se hace más angosto (ancho/e) y por eso más alto: se prueba si cabe
+        k.style.width = `${100 / e}%`;
+        const h = k.offsetHeight;
+        if (h * e <= disponible - 4) { esc = e; alto = h; k.style.transform = `scale(${e})`; break; }
+      }
+      if (esc === 1) k.style.width = '100%';
+    }
     c.style.overflowY = alto * esc > disponible + 2 ? 'auto' : 'hidden';
     c.dataset.escala = esc.toFixed(2);
   };
-  React.useLayoutEffect(ajustar);
+  React.useLayoutEffect(() => { // se mide al instante y se repite al terminar de acomodarse la pantalla
+    ajustar();
+    const r = requestAnimationFrame(() => requestAnimationFrame(ajustar));
+    const t = setTimeout(ajustar, 250);
+    return () => { cancelAnimationFrame(r); clearTimeout(t); };
+  });
   React.useEffect(() => {
     window.addEventListener('resize', ajustar);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(ajustar) : null;
-    if (ro) { ro.observe(cont.current); ro.observe(caja.current); }
+    if (ro) ro.observe(caja.current); // solo la caja (la ventana); observar el contenido haría un bucle porque aquí cambiamos su ancho
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(ajustar);
     return () => { window.removeEventListener('resize', ajustar); if (ro) ro.disconnect(); };
   }, []);
   return (
     <div ref={caja} data-cuerpo-ajustado="1" className="flex-1 min-h-0 overflow-hidden">
-      <div ref={cont} style={{ transformOrigin: 'top center' }}>{children}</div>
+      <div ref={cont} style={{ transformOrigin: 'top left' }}>{children}</div>
     </div>
   );
 }
@@ -1841,11 +1861,11 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
   return (
     <div className="flex flex-col h-full min-h-0 gap-3" onKeyDown={conEnter ? alEnter : undefined}>
       <div className="shrink-0 pr-8">
-        <div className="flex items-center justify-between text-base font-bold text-slate-300 mb-1">
+        <div className="flex items-center justify-between text-base sm:text-xl font-bold text-slate-300 mb-1">
           <span>Paso {indice + 1} de {pasos.length}</span>
           <span className="text-slate-500">Nuevo sorteo</span>
         </div>
-        <div className="h-3 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-gradient-to-r from-bingopurple to-bingoaccent transition-all" style={{ width: `${((indice + 1) / pasos.length) * 100}%` }} /></div>
+        <div className="h-3 sm:h-4 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-gradient-to-r from-bingopurple to-bingoaccent transition-all" style={{ width: `${((indice + 1) / pasos.length) * 100}%` }} /></div>
       </div>
 
       <CuerpoAjustado>
@@ -2168,21 +2188,21 @@ function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, set
       {!esSiNo && (
         <div className="flex gap-3 pt-1 shrink-0">
           {indice > 0 ? (
-            <Button variant="ghost" className="flex-1 py-4 text-xl rounded-2xl" onClick={atras}>← Atrás</Button>
+            <Button variant="ghost" className="flex-1 py-4 sm:py-5 text-xl sm:text-2xl rounded-2xl" onClick={atras}>← Atrás</Button>
           ) : (
-            <Button variant="ghost" className="flex-1 py-4 text-xl rounded-2xl" onClick={onCancelar}>Cancelar</Button>
+            <Button variant="ghost" className="flex-1 py-4 sm:py-5 text-xl sm:text-2xl rounded-2xl" onClick={onCancelar}>Cancelar</Button>
           )}
           {ultimo ? (
-            <Button variant="success" className="flex-[2] py-4 text-xl rounded-2xl" disabled={creando} onClick={onCrear}>{creando ? 'Creando…' : '✅ Crear sorteo'}</Button>
+            <Button variant="success" className="flex-[2] py-4 sm:py-5 text-xl sm:text-2xl rounded-2xl" disabled={creando} onClick={onCrear}>{creando ? 'Creando…' : '✅ Crear sorteo'}</Button>
           ) : (
-            <Button className="flex-[2] py-4 text-xl rounded-2xl" disabled={sinOpciones} onClick={siguiente}>Siguiente →</Button>
+            <Button className="flex-[2] py-4 sm:py-5 text-xl sm:text-2xl rounded-2xl" disabled={sinOpciones} onClick={siguiente}>Siguiente →</Button>
           )}
         </div>
       )}
       {esSiNo && (
         <div className="flex gap-3 pt-1 shrink-0">
-          <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={atras}>← Atrás</Button>
-          <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={onCancelar}>Cancelar</Button>
+          <Button variant="ghost" className="flex-1 py-3 sm:py-4 text-lg sm:text-xl rounded-2xl" onClick={atras}>← Atrás</Button>
+          <Button variant="ghost" className="flex-1 py-3 sm:py-4 text-lg sm:text-xl rounded-2xl" onClick={onCancelar}>Cancelar</Button>
         </div>
       )}
     </div>
