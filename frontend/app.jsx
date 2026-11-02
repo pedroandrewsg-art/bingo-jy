@@ -1570,7 +1570,559 @@ function CustomPatternEditor({ onClose, onCreated }) {
     </Modal>
   );
 }
+// ---------------------------------------------------------------------------
+// Asistente para crear un sorteo: UNA pregunta por pantalla (letra y botones grandes) en vez de un formulario largo.
+// Pensado para una persona mayor: cada paso explica qué se pide, se puede volver atrás y al final hay un resumen
+// para revisar todo antes de crear. Los pasos se arman según los campos que tenga el formulario de este sistema
+// (nombre, catálogo o color, combos, premios, regalos, ventas...), así que cada sistema pregunta solo lo suyo.
+// ---------------------------------------------------------------------------
+function AsistenteSorteo({ form, setForm, catalogos, patrones, toggleFigura, setFiguraPorcentaje, setFiguraMonto, cambiarModoPremio, moverFigura, onCrearFigura, onCancelar, onCrear, error, creando }) {
+  const [paso, setPaso] = useState(0);
+  const [aviso, setAviso] = useState('');
+  const [fecha, setFecha] = useState(form.fecha_hora ? form.fecha_hora.slice(0, 10) : '');
+  const [hora, setHora] = useState(form.fecha_hora ? form.fecha_hora.slice(11, 16) : '');
+
+  const listaCatalogos = catalogos || [];
+  const normales = listaCatalogos.filter((c) => !c.es_regalo && !c.es_pronto_pago);
+  const deRegalo = listaCatalogos.filter((c) => c.es_regalo);
+  const catalogo = listaCatalogos.find((c) => String(c.id) === String(form.catalogo_imagenes_id));
+  const catRegalo = listaCatalogos.find((c) => String(c.id) === String(form.regalo_catalogo_id));
+  const coloresSistema = typeof COLORS !== 'undefined' ? COLORS : [];
+  const combosSistema = typeof COMBOS !== 'undefined' ? COMBOS : [];
+
+  // Qué campos tiene el formulario de ESTE sistema
+  const tieneNombre = 'nombre' in form;
+  const tieneCatalogo = 'catalogo_imagenes_id' in form;
+  const tieneColor = !tieneCatalogo && coloresSistema.length > 1;
+  const tieneCombos = !tieneCatalogo && 'tipo_venta' in form && combosSistema.length > 1;
+  const tieneVentas = 'ventas_habilitadas' in form;
+  const tieneOculto = 'oculto' in form;
+  const tieneGanancia = 'porcentaje_ganancia' in form; // algunos sistemas ya no manejan % de ganancia
+  const tieneModo = typeof cambiarModoPremio === 'function'; // ni elegir el modo de premio (solo monto fijo)
+  const regaloTipo = 'regalo_catalogo_id' in form ? 'catalogo' : 'regalo_desde' in form ? 'rango' : 'cantidad_regalos' in form ? 'cantidad' : null;
+
+  useEffect(() => { // sistemas con un solo color: se fija solo
+    if (!tieneCatalogo && coloresSistema.length === 1 && form.color !== coloresSistema[0]) setForm((x) => ({ ...x, color: coloresSistema[0] }));
+  }, []);
+
+  const pasos = [
+    ...(tieneNombre ? ['nombre'] : []),
+    'fecha',
+    ...(tieneCatalogo ? ['catalogo'] : []),
+    ...(tieneColor ? ['color'] : []),
+    ...(tieneCombos ? ['combos'] : []),
+    'cantidad', 'costo', ...(tieneGanancia ? ['ganancia'] : []), ...(tieneModo ? ['modo'] : []), 'figuras',
+    ...(form.modo_premio !== 'sin_premio' && form.figuras.length ? ['premios_fig'] : []),
+    ...(moverFigura && form.figuras.length > 1 ? ['orden'] : []),
+    ...(regaloTipo === 'catalogo' ? ['regalo', ...(form.regalo_activo ? ['regalo_catalogo', 'regalo_cada'] : [])] : []),
+    ...(regaloTipo === 'rango' ? ['regalo', ...(form.regalo_activo ? ['regalo_rango', 'regalo_cada'] : [])] : []),
+    ...(regaloTipo === 'cantidad' ? ['regalo_cantidad'] : []),
+    ...(tieneVentas ? ['ventas'] : []),
+    ...(tieneOculto ? ['oculto'] : []),
+    'resumen',
+  ];
+  const indice = Math.min(paso, pasos.length - 1);
+  const clave = pasos[indice];
+
+  const hoy = new Date(Date.now() - 4 * 3600 * 1000).toISOString().slice(0, 10); // hora de Venezuela
+  const manana = new Date(Date.now() - 4 * 3600 * 1000 + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  function guardarFechaHora(f, h) {
+    setFecha(f); setHora(h);
+    setForm((x) => ({ ...x, fecha_hora: f && h ? `${f}T${h}` : '' }));
+  }
+  const cantidad = parseInt(form.rango_hasta, 10) || 0;
+  const desdeNum = parseInt(form.rango_desde, 10) || 1;
+  const maxCartones = catalogo ? catalogo.total_imagenes : null;
+  const combo = tieneCombos && Number(form.tipo_venta) > 1;
+  // Con combos cada venta lleva varios cartones: el último número de cartón es cantidad x cartones por combo.
+  const ultimoNumero = combo ? cantidad * Number(form.tipo_venta) : cantidad;
+  const unidad = combo ? 'combos' : 'cartones';
+  const sumaPorcentaje = +form.figuras.reduce((s, f) => s + (Number(f.porcentaje) || 0), 0).toFixed(2);
+  const etiquetaFigura = (k) => (patrones.find((p) => p.key === k) || {}).label || k;
+
+  function etiquetaHora(h) {
+    const [hh, mm] = h.split(':').map(Number);
+    return `${hh % 12 === 0 ? 12 : hh % 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'PM' : 'AM'}`;
+  }
+  function textoFecha() {
+    if (!form.fecha_hora) return '';
+    const [d, t] = form.fecha_hora.split('T');
+    const [y, m, dd] = d.split('-').map(Number);
+    const [hh, mm] = (t || '00:00').split(':').map(Number);
+    const dia = new Date(y, m - 1, dd).toLocaleDateString('es-VE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    return `${dia}, ${etiquetaHora(`${hh}:${mm}`)}`;
+  }
+  // Estado del rango de regalo (modo "rango": cartas desde-hasta, aparte de las de venta o reservadas dentro de ellas)
+  function estadoRegaloRango() {
+    const d = Number(form.regalo_desde), h = Number(form.regalo_hasta);
+    if (!(d > 0 && h >= d)) return null;
+    const rd = desdeNum, rh = ultimoNumero;
+    if (combo && d <= rh) return { ok: false, texto: `Con combos el regalo debe empezar después de la carta ${rh} (el último cartón del sorteo). Por ejemplo de la ${rh + 1} a la ${rh + 10}.` };
+    if (h < rd || d > rh) return { ok: true, texto: `Se crearán ${h - d + 1} cartas de regalo nuevas (de la ${d} a la ${h}), aparte de las que se venden.` };
+    if (d >= rd && h <= rh) return { ok: true, texto: `Se reservarán ${h - d + 1} cartas de las que se venden (de la ${d} a la ${h}): dejarán de estar a la venta.` };
+    return { ok: false, texto: `El regalo no puede quedar a medias entre las cartas de venta (de la ${rd} a la ${rh}). Elija todo después de la ${rh} o todo dentro.` };
+  }
+
+  // Devuelve el mensaje de error del paso actual (o '' si todo está bien para seguir).
+  function revisar() {
+    if (clave === 'fecha') {
+      if (!fecha) return 'Falta elegir el día del sorteo.';
+      if (!hora) return 'Falta elegir la hora del sorteo.';
+    }
+    if (clave === 'catalogo' && !form.catalogo_imagenes_id) return 'Toque uno de los cartones de la lista para elegirlo.';
+    if (clave === 'cantidad') {
+      if (!(cantidad >= desdeNum)) return `Escriba cuántos ${unidad} va a vender (al menos 1).`;
+      if (maxCartones != null && cantidad > maxCartones) return `Ese grupo solo tiene ${maxCartones} cartones. Escriba ${maxCartones} o menos.`;
+    }
+    if (clave === 'costo' && (form.costo === '' || Number(form.costo) < 0 || Number.isNaN(Number(form.costo)))) return 'Escriba cuánto cuesta (puede ser 0).';
+    if (clave === 'ganancia' && (form.porcentaje_ganancia === '' || Number(form.porcentaje_ganancia) < 0 || Number(form.porcentaje_ganancia) > 100)) return 'Escriba un porcentaje entre 0 y 100.';
+    if (clave === 'figuras' && !form.figuras.length) return 'Toque al menos una figura para jugar.';
+    if (clave === 'premios_fig') {
+      if (form.modo_premio === 'porcentaje' && sumaPorcentaje !== 100) return `Los porcentajes deben sumar 100 (ahora suman ${sumaPorcentaje}).`;
+      if (form.modo_premio === 'monto_fijo' && form.figuras.some((f) => !(Number(f.monto) > 0))) return 'Cada figura necesita un monto mayor a 0.';
+    }
+    if (clave === 'regalo_catalogo' && !form.regalo_catalogo_id) return 'Toque el catálogo de cartones de regalo.';
+    if (clave === 'regalo_rango') {
+      const e = estadoRegaloRango();
+      if (!e) return 'Escriba desde qué carta y hasta qué carta van los regalos.';
+      if (!e.ok) return e.texto;
+    }
+    if (clave === 'regalo_cada' && !(parseInt(regaloTipo === 'rango' ? form.regalo_cada : form.regalo_compra_cantidad, 10) >= 1)) return 'Escriba cada cuántas pagadas se regala una (por ejemplo 3).';
+    if (clave === 'regalo_cantidad' && (form.cantidad_regalos === '' || !(Number(form.cantidad_regalos) >= 0))) return 'Escriba cuántos regalos (0 si no hay).';
+    return '';
+  }
+  function siguiente() {
+    const e = revisar();
+    if (e) { setAviso(e); return; }
+    setAviso('');
+    setPaso(indice + 1);
+  }
+  function atras() { setAviso(''); setPaso(Math.max(0, indice - 1)); }
+  function irA(k) { const i = pasos.indexOf(k); if (i >= 0) { setAviso(''); setPaso(i); } }
+  function responderSiNo(campo, valor) { setForm((x) => ({ ...x, [campo]: valor })); setAviso(''); setPaso(indice + 1); }
+  function alEnter(e) { if (e.key === 'Enter') { e.preventDefault(); siguiente(); } }
+  function ponerNumero(campo, valor) { setForm((x) => ({ ...x, [campo]: valor })); }
+
+  const titulo = 'text-2xl sm:text-3xl font-black text-slate-100 leading-tight text-center';
+  const ayuda = 'text-base sm:text-lg text-slate-400 text-center mt-2';
+  const campoGrande = 'w-full bg-slate-800/70 border-2 border-slate-600 focus:border-bingoaccent focus:outline-none rounded-xl px-4 py-4 text-2xl font-bold text-center text-slate-100';
+  const botonGrande = 'w-full py-4 text-xl rounded-2xl';
+  const tarjetaOpcion = (activa) => `w-full text-left rounded-2xl border-2 px-4 py-4 transition active:scale-[0.98] ${activa ? 'border-bingoaccent bg-bingopurple/20' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'}`;
+  const badgeFig = (k) => (typeof badgeDePatron === 'function' ? badgeDePatron(k) : undefined);
+
+  function ListaCatalogos({ lista, valor, onElegir, vacio }) {
+    if (!lista.length) return <p className="text-lg text-amber-400 text-center">{vacio}</p>;
+    return (
+      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+        {lista.map((c) => {
+          const activa = String(valor) === String(c.id);
+          return (
+            <button type="button" key={c.id} onClick={() => { onElegir(c); setAviso(''); }} className={tarjetaOpcion(activa)}>
+              <div className="flex items-center gap-3">
+                <span className={`text-3xl ${activa ? '' : 'opacity-30'}`}>{activa ? '✅' : '⬜'}</span>
+                <div>
+                  <div className="text-xl font-extrabold text-slate-100">{c.nombre}</div>
+                  <div className="text-base text-slate-400">{c.total_imagenes} cartones · color {c.color}</div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+  function Opciones({ lista, valor, onElegir }) {
+    return (
+      <div className="space-y-3 max-h-[45vh] overflow-y-auto pr-1">
+        {lista.map((o) => {
+          const activa = String(valor) === String(o.valor);
+          return (
+            <button type="button" key={o.valor} onClick={() => { onElegir(o.valor); setAviso(''); }} className={tarjetaOpcion(activa)}>
+              <div className="flex items-center gap-3">
+                <span className={`text-3xl ${activa ? '' : 'opacity-30'}`}>{activa ? '✅' : '⬜'}</span>
+                <div>
+                  <div className="text-xl font-extrabold text-slate-100">{o.titulo}</div>
+                  {o.detalle && <div className="text-base text-slate-400">{o.detalle}</div>}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+  function SiNo({ campo, pregunta, ayudaTexto, emoji }) {
+    return (
+      <div className="space-y-4">
+        <h3 className={titulo}>{pregunta}</h3>
+        {ayudaTexto && <p className={ayuda}>{ayudaTexto}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <Button className={botonGrande} onClick={() => responderSiNo(campo, true)}>{emoji || '✅'} Sí</Button>
+          <Button variant="ghost" className={botonGrande} onClick={() => responderSiNo(campo, false)}>No</Button>
+        </div>
+        <p className="text-center text-base text-slate-500">Ahora está en: <b className="text-slate-300">{form[campo] ? 'Sí' : 'No'}</b></p>
+      </div>
+    );
+  }
+  const fila = (etiqueta, valor, paraCambiar) => (
+    <div className="flex items-start justify-between gap-3 bg-slate-800/40 rounded-xl px-4 py-3">
+      <div>
+        <div className="text-sm uppercase tracking-wide text-slate-400">{etiqueta}</div>
+        <div className="text-lg font-bold text-slate-100">{valor}</div>
+      </div>
+      {paraCambiar && <button type="button" onClick={() => irA(paraCambiar)} className="shrink-0 text-base font-bold text-bingoaccent underline">Cambiar</button>}
+    </div>
+  );
+
+  const etiquetasFiguras = form.figuras.map((f) => etiquetaFigura(f.patron));
+  const textoModo = { porcentaje: 'Porcentaje del acumulado', monto_fijo: 'Monto fijo en Bs', sin_premio: 'Sin montos por ahora' }[form.modo_premio] || form.modo_premio;
+  const textoPremiosFig = form.modo_premio === 'porcentaje' ? form.figuras.map((f) => `${etiquetaFigura(f.patron)} ${f.porcentaje}%`).join(', ')
+    : form.modo_premio === 'monto_fijo' ? form.figuras.map((f) => `${etiquetaFigura(f.patron)} Bs ${f.monto}`).join(', ') : '';
+  const ultimo = clave === 'resumen';
+  const sinOpciones = (clave === 'catalogo' && !normales.length) || (clave === 'regalo_catalogo' && !deRegalo.length);
+  const esSiNo = ['regalo', 'ventas', 'oculto'].includes(clave);
+  const conEnter = ['nombre', 'fecha', 'cantidad', 'costo', 'ganancia', 'regalo_rango', 'regalo_cada', 'regalo_cantidad'].includes(clave);
+
+  return (
+    <div className="space-y-5" onKeyDown={conEnter ? alEnter : undefined}>
+      <div>
+        <div className="flex items-center justify-between text-base font-bold text-slate-300 mb-1">
+          <span>Paso {indice + 1} de {pasos.length}</span>
+          <span className="text-slate-500">Nuevo sorteo</span>
+        </div>
+        <div className="h-3 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-gradient-to-r from-bingopurple to-bingoaccent transition-all" style={{ width: `${((indice + 1) / pasos.length) * 100}%` }} /></div>
+      </div>
+
+      {clave === 'nombre' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Quiere ponerle un nombre al sorteo?</h3>
+          <p className={ayuda}>Es opcional. Sirve para reconocerlo si tiene más de uno. Por ejemplo: "Sorteo de las 3pm". Si no quiere, toque "Siguiente".</p>
+          <input type="text" className={campoGrande} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Sorteo de las 3pm" autoFocus />
+        </div>
+      )}
+
+      {clave === 'fecha' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Qué día y a qué hora es el sorteo?</h3>
+          <p className={ayuda}>Toque el día y luego la hora.</p>
+          <div>
+            <div className="text-lg font-bold text-slate-300 mb-1 text-center">📅 Día</div>
+            <input type="date" className={campoGrande} value={fecha} onChange={(e) => guardarFechaHora(e.target.value, hora)} />
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <Button variant="ghost" className="py-3 text-lg" onClick={() => guardarFechaHora(hoy, hora)}>Hoy</Button>
+              <Button variant="ghost" className="py-3 text-lg" onClick={() => guardarFechaHora(manana, hora)}>Mañana</Button>
+            </div>
+          </div>
+          <div>
+            <div className="text-lg font-bold text-slate-300 mb-1 text-center">⏰ Hora</div>
+            <input type="time" className={campoGrande} value={hora} onChange={(e) => guardarFechaHora(fecha, e.target.value)} />
+            <div className="grid grid-cols-4 gap-2 mt-3">
+              {['12:00', '15:00', '17:00', '20:00'].map((h) => (
+                <Button key={h} variant="ghost" className={`py-3 text-base ${hora === h ? '!border-bingoaccent !bg-bingopurple/30' : ''}`} onClick={() => guardarFechaHora(fecha, h)}>{etiquetaHora(h)}</Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clave === 'catalogo' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Con qué cartones van a jugar?</h3>
+          <p className={ayuda}>Toque el grupo de cartones que quiere usar.</p>
+          <ListaCatalogos
+            lista={normales}
+            valor={form.catalogo_imagenes_id}
+            onElegir={(c) => setForm((x) => ({ ...x, catalogo_imagenes_id: String(c.id), color: c.color }))}
+            vacio='Todavía no hay cartones cargados. Cancele y entre primero a "🖼️ Cartones Personalizados" para crear el grupo de cartones.'
+          />
+        </div>
+      )}
+
+      {clave === 'color' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿De qué color son los cartones?</h3>
+          <p className={ayuda}>Toque el color.</p>
+          <Opciones lista={coloresSistema.map((c) => ({ valor: c, titulo: c }))} valor={form.color} onElegir={(v) => setForm((x) => ({ ...x, color: v }))} />
+        </div>
+      )}
+
+      {clave === 'combos' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Cómo se vende: un cartón o en combo?</h3>
+          <p className={ayuda}>Un combo son varios cartones juntos por un solo precio.</p>
+          <Opciones lista={combosSistema.map((c) => ({ valor: c, titulo: c === 1 ? '1 cartón' : `Combo de ${c} cartones` }))} valor={form.tipo_venta} onElegir={(v) => setForm((x) => ({ ...x, tipo_venta: Number(v) }))} />
+        </div>
+      )}
+
+      {clave === 'cantidad' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Cuántos {unidad} va a vender?</h3>
+          <p className={ayuda}>
+            {maxCartones != null ? `Ese grupo tiene ${maxCartones} cartones. ` : ''}Se numeran desde el {desdeNum} hasta el número que escriba.
+          </p>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setForm((x) => ({ ...x, rango_hasta: Math.max(1, (parseInt(x.rango_hasta, 10) || 0) - 1) }))} className="w-16 h-16 shrink-0 rounded-2xl bg-slate-800 border-2 border-slate-600 text-4xl font-black text-slate-100 active:scale-95">−</button>
+            <input type="number" inputMode="numeric" min="1" max={maxCartones || undefined} className={campoGrande} value={form.rango_hasta} onChange={(e) => ponerNumero('rango_hasta', e.target.value)} autoFocus />
+            <button type="button" onClick={() => setForm((x) => ({ ...x, rango_hasta: (parseInt(x.rango_hasta, 10) || 0) + 1 }))} className="w-16 h-16 shrink-0 rounded-2xl bg-slate-800 border-2 border-slate-600 text-4xl font-black text-slate-100 active:scale-95">+</button>
+          </div>
+          {maxCartones != null && (
+            <Button variant="ghost" className="py-3 text-lg w-full" onClick={() => ponerNumero('rango_hasta', maxCartones)}>Usar todos ({maxCartones})</Button>
+          )}
+        </div>
+      )}
+
+      {clave === 'costo' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>{combo ? '¿Cuánto cuesta cada combo?' : '¿Cuánto cuesta cada cartón?'}</h3>
+          <p className={ayuda}>Escriba el precio en bolívares (Bs).</p>
+          <div className="flex items-center gap-3">
+            <span className="text-3xl font-black text-slate-300">Bs</span>
+            <input type="number" inputMode="decimal" step="0.01" min="0" className={campoGrande} value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value === '' ? '' : Number(e.target.value) })} autoFocus />
+          </div>
+        </div>
+      )}
+
+      {clave === 'ganancia' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Qué porcentaje es su ganancia?</h3>
+          <p className={ayuda}>Es lo que usted se queda de lo vendido. El resto se reparte en premios.</p>
+          <div className="flex items-center gap-3">
+            <input type="number" inputMode="decimal" min="0" max="100" className={campoGrande} value={form.porcentaje_ganancia} onChange={(e) => setForm({ ...form, porcentaje_ganancia: e.target.value === '' ? '' : Number(e.target.value) })} autoFocus />
+            <span className="text-3xl font-black text-slate-300">%</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {[10, 20, 30, 40].map((p) => (
+              <Button key={p} variant="ghost" className={`py-3 text-lg ${Number(form.porcentaje_ganancia) === p ? '!border-bingoaccent !bg-bingopurple/30' : ''}`} onClick={() => setForm({ ...form, porcentaje_ganancia: p })}>{p}%</Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {clave === 'modo' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Cómo se definen los premios?</h3>
+          <p className={ayuda}>Toque una opción.</p>
+          <Opciones
+            lista={[
+              { valor: 'porcentaje', titulo: 'Porcentaje del acumulado', detalle: 'Cada figura se lleva un % de lo recaudado' },
+              { valor: 'monto_fijo', titulo: 'Monto fijo en Bs', detalle: 'Cada figura tiene un monto fijo' },
+              { valor: 'sin_premio', titulo: 'Sin montos por ahora', detalle: 'Solo elige las figuras; el monto se define después' },
+            ]}
+            valor={form.modo_premio}
+            onElegir={(v) => cambiarModoPremio(v)}
+          />
+        </div>
+      )}
+
+      {clave === 'figuras' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Qué figuras se van a jugar?</h3>
+          <p className={ayuda}>Toque cada figura que quiere jugar. Puede elegir varias.</p>
+          <div className="grid sm:grid-cols-2 gap-3 max-h-[45vh] overflow-y-auto pr-1">
+            {patrones.map((p) => {
+              const activa = form.figuras.some((f) => f.patron === p.key);
+              return (
+                <button type="button" key={p.key} onClick={() => { toggleFigura(p.key); setAviso(''); }} className={tarjetaOpcion(activa)}>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-3xl ${activa ? '' : 'opacity-30'}`}>{activa ? '✅' : '⬜'}</span>
+                    <PatternGrid mask={p.preview} size={16} badge={badgeFig(p.key)} />
+                    <span className="text-lg font-extrabold text-slate-100">{p.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" onClick={onCrearFigura} className="w-full text-center text-lg font-bold text-bingoaccent underline py-1">+ Crear otra figura (dibujarla)</button>
+          {form.figuras.length > 0 && <p className="text-lg font-bold text-emerald-400 text-center">Elegidas: {etiquetasFiguras.join(', ')}</p>}
+        </div>
+      )}
+
+      {clave === 'premios_fig' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>{form.modo_premio === 'porcentaje' ? '¿Qué porcentaje gana cada figura?' : '¿Cuántos bolívares gana cada figura?'}</h3>
+          <p className={ayuda}>{form.modo_premio === 'porcentaje' ? 'Los porcentajes de todas las figuras deben sumar 100.' : 'Escriba el monto de cada figura.'}</p>
+          <div className="space-y-3">
+            {form.figuras.map((f) => (
+              <div key={f.patron} className="flex items-center gap-3 bg-slate-800/40 rounded-2xl px-3 py-3">
+                <span className="flex-1 text-xl font-extrabold text-slate-100">{etiquetaFigura(f.patron)}</span>
+                {form.modo_premio === 'monto_fijo' && <span className="text-2xl font-black text-slate-300">Bs</span>}
+                <input
+                  type="number" inputMode="decimal" min="0" step="0.01"
+                  className="w-32 bg-slate-800/70 border-2 border-slate-600 focus:border-bingoaccent focus:outline-none rounded-xl px-3 py-3 text-2xl font-bold text-center text-slate-100"
+                  value={form.modo_premio === 'porcentaje' ? f.porcentaje : f.monto}
+                  onChange={(e) => (form.modo_premio === 'porcentaje' ? (setFiguraPorcentaje || (() => {}))(f.patron, Number(e.target.value)) : (setFiguraMonto || (() => {}))(f.patron, Number(e.target.value)))}
+                />
+                {form.modo_premio === 'porcentaje' && <span className="text-2xl font-black text-slate-300">%</span>}
+              </div>
+            ))}
+          </div>
+          {form.modo_premio === 'porcentaje' && (
+            <p className={`text-xl font-black text-center ${sumaPorcentaje === 100 ? 'text-emerald-400' : 'text-red-400'}`}>Suman {sumaPorcentaje}%{sumaPorcentaje !== 100 ? ' (deben sumar 100)' : ' ✔'}</p>
+          )}
+        </div>
+      )}
+
+      {clave === 'orden' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿En qué orden se juegan las figuras?</h3>
+          <p className={ayuda}>Se juega una figura a la vez, de arriba hacia abajo. Use las flechas para cambiar el orden.</p>
+          <div className="space-y-3">
+            {form.figuras.map((f, i) => (
+              <div key={f.patron} className="flex items-center gap-3 bg-slate-800/40 rounded-2xl px-3 py-3">
+                <span className="w-10 h-10 rounded-full bg-bingopurple/40 text-xl font-black text-slate-100 flex items-center justify-center shrink-0">{i + 1}</span>
+                <span className="flex-1 text-xl font-extrabold text-slate-100">{etiquetaFigura(f.patron)}</span>
+                <button type="button" disabled={i === 0} onClick={() => moverFigura(f.patron, -1)} className="w-12 h-12 rounded-xl bg-slate-700 text-2xl text-slate-100 disabled:opacity-30 active:scale-95">⬆</button>
+                <button type="button" disabled={i === form.figuras.length - 1} onClick={() => moverFigura(f.patron, 1)} className="w-12 h-12 rounded-xl bg-slate-700 text-2xl text-slate-100 disabled:opacity-30 active:scale-95">⬇</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {clave === 'regalo' && (
+        <SiNo
+          campo="regalo_activo"
+          emoji="🎁"
+          pregunta="¿Va a regalar cartones?"
+          ayudaTexto={regaloTipo === 'rango' ? 'Se regala una carta cada cierta cantidad de cartas pagadas por una misma persona.' : 'Por ejemplo, regalar un cartón extra cada cierta cantidad de cartones pagados.'}
+        />
+      )}
+
+      {clave === 'regalo_catalogo' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Qué cartones va a regalar?</h3>
+          <p className={ayuda}>Toque el grupo de cartones de regalo.</p>
+          <ListaCatalogos
+            lista={deRegalo}
+            valor={form.regalo_catalogo_id}
+            onElegir={(c) => setForm((x) => ({ ...x, regalo_catalogo_id: String(c.id) }))}
+            vacio='No hay cartones de regalo cargados. Toque "Atrás" y conteste "No", o cree primero ese grupo en "🖼️ Cartones Personalizados".'
+          />
+        </div>
+      )}
+
+      {clave === 'regalo_rango' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Cuáles cartas se regalan?</h3>
+          <p className={ayuda}>Las cartas de venta son de la {desdeNum} a la {ultimoNumero}. Lo normal es regalar las que siguen: por ejemplo de la {ultimoNumero + 1} a la {ultimoNumero + 10}.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-lg font-bold text-slate-300 mb-1 text-center">Desde la carta</div>
+              <input type="number" inputMode="numeric" min="1" className={campoGrande} value={form.regalo_desde} onChange={(e) => setForm({ ...form, regalo_desde: e.target.value })} placeholder={`Ej: ${ultimoNumero + 1}`} autoFocus />
+            </div>
+            <div>
+              <div className="text-lg font-bold text-slate-300 mb-1 text-center">Hasta la carta</div>
+              <input type="number" inputMode="numeric" min="1" className={campoGrande} value={form.regalo_hasta} onChange={(e) => setForm({ ...form, regalo_hasta: e.target.value })} placeholder={`Ej: ${ultimoNumero + 10}`} />
+            </div>
+          </div>
+          {estadoRegaloRango() && (
+            <p className={`text-lg font-bold text-center ${estadoRegaloRango().ok ? 'text-emerald-400' : 'text-red-400'}`}>{estadoRegaloRango().texto}</p>
+          )}
+        </div>
+      )}
+
+      {clave === 'regalo_cada' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>{regaloTipo === 'rango' ? '¿Cada cuántas cartas pagadas regala una?' : '¿Cada cuántos cartones pagados regala uno?'}</h3>
+          <p className={ayuda}>Por ejemplo, escriba 3 para regalar uno por cada 3 pagados.</p>
+          <input
+            type="number" inputMode="numeric" min="1" step="1" className={campoGrande}
+            value={regaloTipo === 'rango' ? form.regalo_cada : form.regalo_compra_cantidad}
+            onChange={(e) => setForm({ ...form, [regaloTipo === 'rango' ? 'regalo_cada' : 'regalo_compra_cantidad']: e.target.value })}
+            placeholder="Ej: 3" autoFocus
+          />
+          {regaloTipo === 'catalogo' && (
+            <div>
+              <div className="text-lg font-bold text-slate-300 mb-1 text-center">¿Cuántos regalos en total? (si no sabe, déjelo vacío)</div>
+              <input type="number" inputMode="numeric" min="1" step="1" className={campoGrande} value={form.regalo_cantidad_total} onChange={(e) => setForm({ ...form, regalo_cantidad_total: e.target.value })} placeholder={catRegalo ? `Todos (${catRegalo.total_imagenes})` : 'Todos'} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {clave === 'regalo_cantidad' && (
+        <div className="space-y-4">
+          <h3 className={titulo}>¿Cuántos cartones de regalo?</h3>
+          <p className={ayuda}>Son los que siguen a los de venta: si vende del {desdeNum} al {cantidad}, el primer regalo es el {cantidad + 1}. Escriba 0 si no hay regalos.</p>
+          <input type="number" inputMode="numeric" min="0" step="1" className={campoGrande} value={form.cantidad_regalos} onChange={(e) => setForm({ ...form, cantidad_regalos: e.target.value })} placeholder="0" autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Button variant="ghost" className="py-3 text-lg" onClick={() => setForm({ ...form, cantidad_regalos: 0 })}>Ninguno</Button>
+            <Button variant="ghost" className="py-3 text-lg" onClick={() => setForm({ ...form, cantidad_regalos: 10 })}>10 regalos</Button>
+          </div>
+        </div>
+      )}
+
+      {clave === 'ventas' && (
+        <SiNo
+          campo="ventas_habilitadas"
+          emoji="🔓"
+          pregunta="¿Abrir las ventas desde ya?"
+          ayudaTexto="Si contesta No, el sorteo se crea cerrado y usted lo abre después desde su panel."
+        />
+      )}
+
+      {clave === 'oculto' && (
+        <SiNo
+          campo="oculto"
+          emoji="🙈"
+          pregunta="¿Crearlo desactivado?"
+          ayudaTexto="Desactivado, los jugadores no lo ven ni pueden comprar, pero usted sí puede asignarle cartones. Lo activa cuando quiera."
+        />
+      )}
+
+      {clave === 'resumen' && (
+        <div className="space-y-3">
+          <h3 className={titulo}>Revise que todo esté bien</h3>
+          <p className={ayuda}>Si algo no está bien, toque "Cambiar". Si todo está bien, toque el botón verde.</p>
+          {tieneNombre && fila('Nombre', form.nombre || '(sin nombre)', 'nombre')}
+          {fila('Día y hora', textoFecha(), 'fecha')}
+          {tieneCatalogo && fila('Cartones', catalogo ? `${catalogo.nombre} (color ${catalogo.color})` : '—', 'catalogo')}
+          {tieneColor && fila('Color', form.color, 'color')}
+          {tieneCombos && fila('Venta', Number(form.tipo_venta) === 1 ? '1 cartón' : `Combo de ${form.tipo_venta} cartones`, 'combos')}
+          {fila('Cantidad a vender', `${cantidad} ${unidad} (del ${desdeNum} al ${cantidad})`, 'cantidad')}
+          {fila(combo ? 'Precio de cada combo' : 'Precio de cada cartón', `Bs ${form.costo}`, 'costo')}
+          {tieneGanancia && fila('Su ganancia', `${form.porcentaje_ganancia}%`, 'ganancia')}
+          {tieneModo && fila('Premios', textoModo, 'modo')}
+          {fila('Figuras', etiquetasFiguras.join(', ') || '—', 'figuras')}
+          {textoPremiosFig && fila('Premio de cada figura', textoPremiosFig, 'premios_fig')}
+          {regaloTipo === 'catalogo' && fila('Regalos', form.regalo_activo ? `Sí: 1 cada ${form.regalo_compra_cantidad} pagados${catRegalo ? ` (${catRegalo.nombre})` : ''}` : 'No', 'regalo')}
+          {regaloTipo === 'rango' && fila('Regalos', form.regalo_activo ? `Sí: de la carta ${form.regalo_desde} a la ${form.regalo_hasta}, 1 cada ${form.regalo_cada} pagadas` : 'No', 'regalo')}
+          {regaloTipo === 'cantidad' && fila('Regalos', Number(form.cantidad_regalos) > 0 ? `${form.cantidad_regalos} cartones (del ${cantidad + 1} al ${cantidad + Number(form.cantidad_regalos)})` : 'Ninguno', 'regalo_cantidad')}
+          {tieneVentas && fila('Ventas', form.ventas_habilitadas ? 'Abiertas desde ya' : 'Cerradas (las abre usted después)', 'ventas')}
+          {tieneOculto && fila('Visible para los jugadores', form.oculto ? 'No (desactivado)' : 'Sí', 'oculto')}
+        </div>
+      )}
+
+      {(aviso || error) && (
+        <div className="text-lg font-bold text-red-300 bg-red-500/10 border-2 border-red-500/40 rounded-xl px-4 py-3 text-center">{aviso || error}</div>
+      )}
+
+      {!esSiNo && (
+        <div className="flex gap-3 pt-1">
+          {indice > 0 ? (
+            <Button variant="ghost" className="flex-1 py-4 text-xl rounded-2xl" onClick={atras}>← Atrás</Button>
+          ) : (
+            <Button variant="ghost" className="flex-1 py-4 text-xl rounded-2xl" onClick={onCancelar}>Cancelar</Button>
+          )}
+          {ultimo ? (
+            <Button variant="success" className="flex-[2] py-4 text-xl rounded-2xl" disabled={creando} onClick={onCrear}>{creando ? 'Creando…' : '✅ Crear sorteo'}</Button>
+          ) : (
+            <Button className="flex-[2] py-4 text-xl rounded-2xl" disabled={sinOpciones} onClick={siguiente}>Siguiente →</Button>
+          )}
+        </div>
+      )}
+      {esSiNo && (
+        <div className="flex gap-3 pt-1">
+          <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={atras}>← Atrás</Button>
+          <Button variant="ghost" className="flex-1 py-3 text-lg rounded-2xl" onClick={onCancelar}>Cancelar</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminSorteos() {
+  const [creando, setCreando] = useState(false);
   const [sorteos, setSorteos] = useState([]);
   const [patrones, setPatrones] = useState([]);
   const [catalogos, setCatalogos] = useState([]);
@@ -1652,7 +2204,7 @@ function AdminSorteos() {
   const faltaMonto = form.modo_premio === 'monto_fijo' && form.figuras.some((f) => !(Number(f.monto) > 0));
 
   async function crearSorteo(e) {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     setError('');
     if (!form.catalogo_imagenes_id) { setError('Elige un catálogo de cartones personalizados.'); return; }
     if (!form.figuras.length) { setError('Elige al menos una figura.'); return; }
@@ -1697,183 +2249,26 @@ function AdminSorteos() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-rose-100">Sorteos</h2>
-        <Button onClick={() => setShowForm(true)}>+ Crear Sorteo</Button>
+        <Button onClick={() => { setForm(emptyForm); setError(''); setShowForm(true); }}>+ Crear Sorteo</Button>
       </div>
 
       {showForm && (
-        <Modal title="Nuevo Sorteo" onClose={() => setShowForm(false)} wide>
-          <form onSubmit={crearSorteo} className="grid md:grid-cols-2 gap-4">
-            <div>
-              <Label>Fecha y Hora</Label>
-              <Input required type="datetime-local" value={form.fecha_hora} onChange={(e) => setForm({ ...form, fecha_hora: e.target.value })} />
-            </div>
-            <div>
-              <Label>Cartones Personalizados</Label>
-              <Select
-                required
-                value={form.catalogo_imagenes_id}
-                onChange={(e) => {
-                  const cat = catalogos.find((c) => String(c.id) === e.target.value);
-                  setForm({ ...form, catalogo_imagenes_id: e.target.value, color: cat ? cat.color : form.color });
-                }}
-              >
-                <option value="">Elige un catálogo...</option>
-                {catalogos.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {c.color} ({c.total_imagenes} imgs)</option>)}
-              </Select>
-              {!catalogos.length && (
-                <p className="text-xs text-amber-400 mt-1">No tienes ningún catálogo todavía — créalo primero en "🖼️ Cartones Personalizados".</p>
-              )}
-            </div>
-            <div>
-              <Label>Rango — Desde N°</Label>
-              <Input required type="number" min="1" value={form.rango_desde} onChange={(e) => setForm({ ...form, rango_desde: e.target.value })} />
-            </div>
-            <div>
-              <Label>Rango — Hasta N° (última carta normal)</Label>
-              <Input required type="number" min="1" value={form.rango_hasta} onChange={(e) => setForm({ ...form, rango_hasta: e.target.value })} />
-            </div>
-            <div>
-              <Label>🎁 Cartas de regalo (opcional, consecutivas)</Label>
-              <Input type="number" min="0" value={form.cantidad_regalos} onChange={(e) => setForm({ ...form, cantidad_regalos: e.target.value })} placeholder="0" />
-            </div>
-            <div>
-              <Label>Costo del Cartón / Combo (Bs)</Label>
-              <Input required type="number" step="0.01" min="0" value={form.costo} onChange={(e) => setForm({ ...form, costo: Number(e.target.value) })} />
-            </div>
-            <div>
-              <Label>% Ganancia del Administrador</Label>
-              <Input required type="number" min="0" max="100" value={form.porcentaje_ganancia} onChange={(e) => setForm({ ...form, porcentaje_ganancia: Number(e.target.value) })} />
-            </div>
-            <div className="md:col-span-2">
-              <Label>Cómo se definen los premios de las figuras</Label>
-              <div className="grid sm:grid-cols-3 gap-2">
-                {[
-                  { key: 'porcentaje', label: '% del acumulado', desc: 'Cada figura se lleva un % del premio acumulado según las ventas' },
-                  { key: 'monto_fijo', label: 'Monto fijo (Bs)', desc: 'Cada figura tiene un monto fijo, sin importar cuánto se venda' },
-                  { key: 'sin_premio', label: 'Sin montos', desc: 'Solo elige las figuras; el monto se define después' },
-                ].map((m) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => cambiarModoPremio(m.key)}
-                    className={`text-left rounded-xl border px-3 py-2 transition ${form.modo_premio === m.key ? 'border-bingoaccent bg-bingopurple/10' : 'border-slate-700 bg-slate-800/40 hover:bg-slate-800'}`}
-                  >
-                    <div className="text-sm font-bold">{m.label}</div>
-                    <div className="text-[11px] text-slate-400">{m.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between mb-1">
-                <Label>Figuras / Patrones Ganadores (elige una o varias — bingo "corrido")</Label>
-                <button type="button" onClick={() => setShowEditorFigura(true)} className="text-xs text-rose-300 hover:text-rose-200 underline shrink-0">+ Crear figura personalizada</button>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-2 bg-slate-800/40 rounded-xl p-3 border border-bingopurple/20 max-h-72 overflow-y-auto">
-                {patrones.map((p) => {
-                  const fig = form.figuras.find((f) => f.patron === p.key);
-                  return (
-                    <div key={p.key} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${fig ? 'border-bingoaccent bg-bingopurple/10' : 'border-transparent'}`}>
-                      <input type="checkbox" checked={!!fig} onChange={() => toggleFigura(p.key)} className="accent-bingoaccent" />
-                      <PatternGrid mask={p.preview} size={12} />
-                      <span className="text-sm flex-1">{p.label}</span>
-                      {p.personalizada && (
-                        <button type="button" onClick={() => borrarFigura(p.key)} className="text-xs text-red-400 hover:text-red-300" title="Eliminar figura">🗑️</button>
-                      )}
-                      {fig && form.modo_premio === 'porcentaje' && (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="number" min="0.01" max="100" step="0.01" value={fig.porcentaje}
-                            onChange={(e) => setFiguraPorcentaje(p.key, Number(e.target.value))}
-                            className="w-16 bg-slate-900/70 border border-slate-700 rounded px-1.5 py-1 text-xs text-right"
-                          />
-                          <span className="text-xs text-slate-400">%</span>
-                        </div>
-                      )}
-                      {fig && form.modo_premio === 'monto_fijo' && (
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400">Bs</span>
-                          <input
-                            type="number" min="0.01" step="0.01" value={fig.monto}
-                            onChange={(e) => setFiguraMonto(p.key, Number(e.target.value))}
-                            className="w-20 bg-slate-900/70 border border-slate-700 rounded px-1.5 py-1 text-xs text-right"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {form.figuras.length > 0 && form.modo_premio === 'porcentaje' && (
-                <div className={`text-xs mt-1 text-right ${sumaPorcentaje === 100 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  Suma de %: {sumaPorcentaje}{sumaPorcentaje !== 100 && ' (debe sumar 100)'}
-                </div>
-              )}
-              {form.figuras.length > 0 && form.modo_premio === 'monto_fijo' && (
-                <div className={`text-xs mt-1 text-right ${!faltaMonto ? 'text-emerald-400' : 'text-red-400'}`}>
-                  Total premios fijos: {money(totalMontoFijo)}{faltaMonto && ' (falta algún monto)'}
-                </div>
-              )}
-            </div>
-
-            <div className="md:col-span-2 grid md:grid-cols-2 gap-4 items-center bg-slate-800/40 rounded-xl p-4 border border-bingopurple/20">
-              <div className="text-center">
-                <div className="text-xs text-slate-400">Ganancia Máx. Proyectada (tu ganancia)</div>
-                <div className="text-xl font-black text-emerald-400">{money(gananciaMax)}</div>
-              </div>
-              {form.modo_premio === 'porcentaje' ? (
-                <div className="text-center">
-                  <div className="text-xs text-slate-400">Premio Máx. Proyectado (total a repartir)</div>
-                  <div className="text-xl font-black text-rose-300">{money(premioMax)}</div>
-                </div>
-              ) : form.modo_premio === 'monto_fijo' ? (
-                <div className="text-center">
-                  <div className="text-xs text-slate-400">Total Premios Fijos (suma de figuras)</div>
-                  <div className="text-xl font-black text-rose-300">{money(totalMontoFijo)}</div>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <div className="text-xs text-slate-400">Premios</div>
-                  <div className="text-sm text-slate-400">Sin montos definidos todavía</div>
-                </div>
-              )}
-              {form.figuras.length > 0 && form.modo_premio === 'porcentaje' && (
-                <div className="md:col-span-2 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-300 border-t border-slate-700/50 pt-3">
-                  {form.figuras.map((f) => {
-                    const label = patrones.find((p) => p.key === f.patron)?.label || f.patron;
-                    return <span key={f.patron}>{label}: <b className="text-rose-300">{money(premioMax * (f.porcentaje / 100))}</b> ({f.porcentaje}%)</span>;
-                  })}
-                </div>
-              )}
-              {form.figuras.length > 0 && form.modo_premio === 'monto_fijo' && (
-                <div className="md:col-span-2 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-slate-300 border-t border-slate-700/50 pt-3">
-                  {form.figuras.map((f) => {
-                    const label = patrones.find((p) => p.key === f.patron)?.label || f.patron;
-                    return <span key={f.patron}>{label}: <b className="text-rose-300">{money(f.monto)}</b></span>;
-                  })}
-                </div>
-              )}
-              <div className="md:col-span-2 text-xs text-slate-500 text-center">{grupos} cartas</div>
-            </div>
-
-            <div className="md:col-span-2 flex items-center gap-2">
-              <input type="checkbox" id="encabezado_auto_nuevo" checked={form.encabezado_auto} onChange={(e) => setForm({ ...form, encabezado_auto: e.target.checked })} className="accent-bingoaccent" />
-              <label htmlFor="encabezado_auto_nuevo" className="text-sm text-slate-300">
-                📋 Usar la información de este sorteo (nombre del bingo, fecha, costo y figuras con su monto) en el encabezado de la lista de WhatsApp — si lo desmarcas, escribes el encabezado tú a mano
-              </label>
-            </div>
-
-            {error && <div className="md:col-span-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{error}</div>}
-            <div className="md:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>Cancelar</Button>
-              <Button
-                type="submit"
-                disabled={!form.figuras.length || (form.modo_premio === 'porcentaje' && sumaPorcentaje !== 100) || (form.modo_premio === 'monto_fijo' && faltaMonto)}
-              >
-                Crear Sorteo
-              </Button>
-            </div>
-          </form>
+        <Modal title="Crear sorteo" onClose={() => { setShowForm(false); setError(''); }}>
+          <AsistenteSorteo
+            form={form}
+            setForm={setForm}
+            catalogos={catalogos}
+            patrones={patrones}
+            toggleFigura={toggleFigura}
+            setFiguraPorcentaje={setFiguraPorcentaje}
+            setFiguraMonto={setFiguraMonto}
+            cambiarModoPremio={cambiarModoPremio}
+            onCrearFigura={() => setShowEditorFigura(true)}
+            onCancelar={() => { setShowForm(false); setForm(emptyForm); setError(''); }}
+            onCrear={async () => { setCreando(true); try { await crearSorteo(); } finally { setCreando(false); } }}
+            error={error}
+            creando={creando}
+          />
         </Modal>
       )}
 
