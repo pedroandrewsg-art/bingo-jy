@@ -2475,7 +2475,240 @@ function AdminSorteos() {
 // ---------------------------------------------------------------------------
 // PANEL SORTEADOR AUTOMATIZADO (en vivo, vía WebSockets)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// FIGURA EN GRANDE: imagen (PNG) con la forma de la figura, para enviarla al grupo de WhatsApp.
+// Se dibuja en un <canvas> (así sale igual al descargarla, copiarla o compartirla) con los colores del sistema.
+// ---------------------------------------------------------------------------
+function paletaImagenFigura() {
+  const hex = (h) => { const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(String(h || '').trim()); if (!m) return null; let v = m[1]; if (v.length === 3) v = v.split('').map((x) => x + x).join(''); return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)]; };
+  const aHex = (r) => '#' + r.map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, '0')).join('');
+  const lum = (r) => (0.2126 * r[0] + 0.7152 * r[1] + 0.0722 * r[2]) / 255;
+  const mezcla = (r, c, t) => r.map((x, i) => x + (c[i] - x) * t); // t: 0 = r, 1 = c
+  const color = (clave, defecto) => { let v; try { v = window.tailwind.config.theme.extend.colors[clave]; } catch (e) { v = null; } return hex(typeof v === 'string' ? v : '') || hex(defecto); };
+  let noche = color('bingonight', '#0c0824'); let indigo = color('bingoindigo', '#1d1558');
+  const principal = color('bingopurple', '#7c4dff'); let acento = color('bingoaccent', '#3b63f0');
+  if (lum(noche) > 0.25) noche = mezcla(noche, [0, 0, 0], 0.85);
+  if (lum(indigo) > 0.3) indigo = mezcla(indigo, [0, 0, 0], 0.7);
+  if (lum(acento) > 0.7) acento = mezcla(acento, [0, 0, 0], 0.4); // los ✔ blancos necesitan fondo con contraste
+  let p = principal; if (lum(p) > 0.7) p = mezcla(p, [0, 0, 0], 0.4);
+  return {
+    n1: aHex(noche), n2: aHex(indigo), n3: aHex(mezcla(acento, [0, 0, 0], 0.55)),
+    p: aHex(p), a: aHex(acento), clara: aHex(mezcla(p, [255, 255, 255], 0.6)), borde: aHex(mezcla(p, [255, 255, 255], 0.35)),
+    luz: aHex(mezcla(acento, [255, 255, 255], 0.25)),
+    rgbLuz: mezcla(acento, [255, 255, 255], 0.25).map(Math.round).join(','), rgbP: p.map(Math.round).join(','),
+  };
+}
+
+function nombreMarcaImagenFigura() {
+  return String(document.title || 'BINGO').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function textoFechaImagenFigura(sorteo) {
+  try {
+    const d = new Date(sorteo.fecha_hora);
+    if (isNaN(d)) return '';
+    const t = d.toLocaleString('es-VE', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  } catch (e) { return ''; }
+}
+
+function dibujarTableroFigura(g, rr, x, y, cel, gap, fig, P, tamLetra, conLibre) {
+  const colores = ['#e0262f', '#f97316', '#eab308', '#16a34a', '#2563eb'];
+  const lh = Math.round(cel * 0.5);
+  'BINGO'.split('').forEach((l, k) => {
+    const lx = x + k * (cel + gap);
+    rr(lx, y, cel, lh, Math.round(cel * 0.12)); g.fillStyle = colores[k]; g.fill();
+    g.fillStyle = '#fff'; g.font = '900 ' + tamLetra + 'px Orbitron, Rajdhani, sans-serif'; g.fillText(l, lx + cel / 2, y + lh / 2 + 1);
+  });
+  const mask = fig.preview || [];
+  const y0 = y + lh + Math.round(gap * 1.4);
+  for (let r = 0; r < 5; r++) {
+    for (let k = 0; k < 5; k++) {
+      const cx = x + k * (cel + gap); const cy = y0 + r * (cel + gap);
+      const on = !!(mask[r] && mask[r][k]); const centro = r === 2 && k === 2;
+      rr(cx, cy, cel, cel, Math.round(cel * 0.18));
+      if (on) {
+        const gr = g.createLinearGradient(cx, cy, cx + cel, cy + cel); gr.addColorStop(0, P.p); gr.addColorStop(1, P.a);
+        g.shadowColor = P.p; g.shadowBlur = Math.round(cel * 0.15); g.fillStyle = gr; g.fill(); g.shadowBlur = 0;
+        g.lineWidth = Math.max(2, Math.round(cel * 0.035)); g.strokeStyle = 'rgba(255,255,255,0.85)'; g.stroke();
+        g.fillStyle = '#fff'; g.font = '900 ' + Math.round(cel * (centro ? 0.5 : 0.6)) + 'px Rajdhani, sans-serif';
+        g.fillText(centro ? '★' : '✔', cx + cel / 2, cy + cel / 2 + 2);
+      } else {
+        g.fillStyle = 'rgba(160,160,200,0.13)'; g.fill(); g.lineWidth = 1.5; g.strokeStyle = 'rgba(190,190,230,0.28)'; g.stroke();
+        if (centro && conLibre) { g.fillStyle = 'rgba(220,220,245,0.55)'; g.font = '900 ' + Math.round(cel * 0.2) + 'px Orbitron, sans-serif'; g.fillText('LIBRE', cx + cel / 2, cy + cel / 2); }
+      }
+    }
+  }
+  return y0 + 5 * cel + 4 * gap;
+}
+
+function fondoImagenFigura(g, W, H, P) {
+  const fondo = g.createLinearGradient(0, 0, W, H);
+  fondo.addColorStop(0, P.n1); fondo.addColorStop(0.55, P.n2); fondo.addColorStop(1, P.n3);
+  g.fillStyle = fondo; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 2;
+  for (let x = 0; x <= W; x += 54) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = 0; y <= H; y += 54) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  const brillo = g.createRadialGradient(W, 0, 0, W, 0, 700); brillo.addColorStop(0, 'rgba(' + P.rgbLuz + ',0.4)'); brillo.addColorStop(1, 'rgba(' + P.rgbLuz + ',0)');
+  g.fillStyle = brillo; g.fillRect(0, 0, W, Math.min(H, 900));
+}
+
+async function dibujarFiguraPNG(figura, sorteo) {
+  try { await Promise.all([document.fonts.load('900 80px Orbitron'), document.fonts.load('700 40px Rajdhani')]); } catch (e) { /* si no cargan, usa la letra por defecto */ }
+  const P = paletaImagenFigura();
+  const W = 1080; const H = 1400;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  fondoImagenFigura(g, W, H, P);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  let tm = 44; g.font = '800 ' + tm + 'px Orbitron, Rajdhani, sans-serif';
+  const marca = '★  ' + nombreMarcaImagenFigura() + '  ★';
+  while (g.measureText(marca).width > W - 100 && tm > 22) { tm -= 2; g.font = '800 ' + tm + 'px Orbitron, Rajdhani, sans-serif'; }
+  g.fillStyle = P.clara; g.fillText(marca, W / 2, 70);
+  const cuando = textoFechaImagenFigura(sorteo);
+  if (cuando) { g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 34px Rajdhani, sans-serif'; g.fillText(cuando, W / 2, 130); }
+  const nombre = String(figura.label || figura.patron).toUpperCase();
+  let tam = 96; g.font = '900 ' + tam + 'px Orbitron, Rajdhani, sans-serif';
+  while (g.measureText(nombre).width > W - 120 && tam > 40) { tam -= 4; g.font = '900 ' + tam + 'px Orbitron, Rajdhani, sans-serif'; }
+  g.shadowColor = P.p; g.shadowBlur = 30; g.fillStyle = '#ffffff'; g.fillText(nombre, W / 2, 235); g.shadowBlur = 0;
+  g.fillStyle = P.luz; g.fillRect(W / 2 - 120, 300, 240, 6);
+  const px = 70; const py = 335; const pw = W - 140; const ph = 940;
+  rr(px, py, pw, ph, 36); g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill(); g.lineWidth = 4; g.strokeStyle = P.borde; g.stroke();
+  const gap = 12; const cel = 152; const tw = 5 * cel + 4 * gap;
+  dibujarTableroFigura(g, rr, px + (pw - tw) / 2, py + 30, cel, gap, figura, P, 54, true);
+  if (Number(figura.premio) > 0) {
+    g.fillStyle = '#fcd34d'; g.font = '900 52px Orbitron, Rajdhani, sans-serif';
+    g.fillText('🏆 Premio: Bs ' + Number(figura.premio).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), W / 2, 1330);
+  } else {
+    g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 40px Rajdhani, sans-serif';
+    g.fillText('Completa esta figura para cantar BINGO', W / 2, 1330);
+  }
+  return c;
+}
+
+// Todas las figuras del sorteo juntas en UNA sola imagen (para mandarla de una vez al grupo).
+async function dibujarTodasFigurasPNG(figuras, sorteo) {
+  try { await Promise.all([document.fonts.load('900 40px Orbitron'), document.fonts.load('700 30px Rajdhani')]); } catch (e) { /* letra por defecto */ }
+  const P = paletaImagenFigura();
+  const W = 1080; const margen = 50; const sep = 30; const pad = 18; const g6 = 7;
+  const n = figuras.length;
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : 3;
+  const filas = Math.ceil(n / cols);
+  const tw = Math.floor((W - 2 * margen - (cols - 1) * sep) / cols);
+  const cel = Math.floor((tw - 2 * pad - 4 * g6) / 5);
+  const hayPremio = figuras.some((x) => Number(x.premio) > 0);
+  const labelH = 64; const premioH = hayPremio ? 56 : 0;
+  const tableroH = Math.round(cel * 0.5) + Math.round(g6 * 1.4) + 5 * cel + 4 * g6;
+  const tileH = pad + labelH + tableroH + pad + premioH;
+  const cabH = 290; const pieH = 110;
+  const H = cabH + filas * (tileH + sep) + pieH;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  fondoImagenFigura(g, W, H, P);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  let tm = 44; g.font = '800 ' + tm + 'px Orbitron, Rajdhani, sans-serif';
+  const marca = '★  ' + nombreMarcaImagenFigura() + '  ★';
+  while (g.measureText(marca).width > W - 100 && tm > 22) { tm -= 2; g.font = '800 ' + tm + 'px Orbitron, Rajdhani, sans-serif'; }
+  g.fillStyle = P.clara; g.fillText(marca, W / 2, 66);
+  const cuando = textoFechaImagenFigura(sorteo);
+  if (cuando) { g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 34px Rajdhani, sans-serif'; g.fillText(cuando, W / 2, 124); }
+  g.shadowColor = P.p; g.shadowBlur = 28; g.fillStyle = '#ffffff'; g.font = '900 70px Orbitron, Rajdhani, sans-serif'; g.fillText('FIGURAS', W / 2, 205); g.shadowBlur = 0;
+  g.fillStyle = P.luz; g.fillRect(W / 2 - 120, 255, 240, 6);
+  figuras.forEach((fig, i) => {
+    const fila = Math.floor(i / cols); const col = i % cols;
+    const enFila = fila === filas - 1 ? n - fila * cols : cols; // la última fila, si queda incompleta, se centra
+    const offset = fila === filas - 1 ? ((cols - enFila) * (tw + sep)) / 2 : 0;
+    const x = margen + offset + col * (tw + sep); const y = cabH + fila * (tileH + sep);
+    rr(x, y, tw, tileH, 28); g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill(); g.lineWidth = 3; g.strokeStyle = P.borde; g.stroke();
+    const nombre = String(fig.label || fig.patron).toUpperCase();
+    let tam = 34; g.font = '800 ' + tam + 'px Orbitron, Rajdhani, sans-serif';
+    while (g.measureText(nombre).width > tw - 28 && tam > 16) { tam -= 2; g.font = '800 ' + tam + 'px Orbitron, Rajdhani, sans-serif'; }
+    g.fillStyle = '#ffffff'; g.fillText(nombre, x + tw / 2, y + pad + labelH / 2);
+    const bw = 5 * cel + 4 * g6;
+    dibujarTableroFigura(g, rr, x + (tw - bw) / 2, y + pad + labelH, cel, g6, fig, P, Math.round(cel * 0.34), true);
+    if (hayPremio && Number(fig.premio) > 0) {
+      g.fillStyle = '#fcd34d'; g.font = '900 32px Orbitron, Rajdhani, sans-serif';
+      g.fillText('🏆 Bs ' + Number(fig.premio).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), x + tw / 2, y + tileH - pad - 24);
+    }
+  });
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.font = '700 38px Rajdhani, sans-serif';
+  g.fillText('Completa una figura para cantar BINGO', W / 2, H - 56);
+  return c;
+}
+
+function FiguraGrandeModal({ figuras, inicial, sorteo, onClose }) {
+  const lista = figuras || [];
+  const [idx, setIdx] = useState(Math.max(0, lista.findIndex((x) => x.patron === inicial)));
+  const [todas, setTodas] = useState(inicial === '__todas'); // todas las figuras juntas en una sola imagen
+  const [url, setUrl] = useState('');
+  const [msg, setMsg] = useState('');
+  const canvasRef = useRef(null);
+  const fig = lista[idx];
+  useEffect(() => {
+    let vivo = true;
+    setUrl(''); setMsg('');
+    if (!fig) return undefined;
+    const dibujo = todas ? dibujarTodasFigurasPNG(lista, sorteo) : dibujarFiguraPNG(fig, sorteo);
+    dibujo.then((cv) => { if (!vivo) return; canvasRef.current = cv; setUrl(cv.toDataURL('image/png')); });
+    return () => { vivo = false; };
+  }, [idx, todas]);
+  if (!fig) return null;
+  const nombreArchivo = todas ? 'figuras-del-sorteo.png' : 'figura-' + String(fig.label || fig.patron).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+  function aBlob() { return new Promise((res) => canvasRef.current.toBlob(res, 'image/png')); }
+  function descargar() {
+    const a = document.createElement('a'); a.href = url; a.download = nombreArchivo; a.click();
+    setMsg('✅ Imagen descargada. Adjúntala en el grupo de WhatsApp.');
+  }
+  async function compartir() {
+    try {
+      const blob = await aBlob();
+      const archivo = new File([blob], nombreArchivo, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) { await navigator.share({ files: [archivo], title: fig.label }); return; }
+      descargar();
+    } catch (e) { if (e && e.name !== 'AbortError') setMsg('No se pudo compartir; usa "Descargar".'); }
+  }
+  async function copiar() {
+    try {
+      const blob = await aBlob();
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      setMsg('✅ Imagen copiada. Pégala en el grupo de WhatsApp (Ctrl+V).');
+    } catch (e) { setMsg('Este navegador no deja copiar la imagen; usa "Descargar".'); }
+  }
+  const btn = 'rounded-xl px-4 py-3 text-base font-bold border border-slate-600 bg-slate-800/80 text-slate-100 hover:bg-slate-700 active:scale-[.98] transition';
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="w-full max-w-md max-h-full overflow-y-auto bg-slate-900 border border-slate-600 rounded-2xl p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-bold text-slate-100 text-lg">{todas ? '🧩 Todas las figuras' : '🖼️ Figura en grande'}</h3>
+          <button type="button" onClick={onClose} className="text-slate-300 text-2xl leading-none px-2" aria-label="Cerrar">×</button>
+        </div>
+        {lista.length > 1 && (
+          <button type="button" className={btn + ' w-full'} onClick={() => setTodas((t) => !t)}>{todas ? '🔍 Ver una por una' : '🧩 Todas en una imagen'}</button>
+        )}
+        {lista.length > 1 && !todas && (
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" className={btn} onClick={() => setIdx((idx - 1 + lista.length) % lista.length)}>◀</button>
+            <div className="text-sm text-slate-300 text-center">{fig.label} <span className="text-slate-500">({idx + 1}/{lista.length})</span></div>
+            <button type="button" className={btn} onClick={() => setIdx((idx + 1) % lista.length)}>▶</button>
+          </div>
+        )}
+        {url ? <img src={url} alt={todas ? 'Todas las figuras' : 'Figura ' + fig.label} className="w-full rounded-xl border border-slate-700" /> : <div className="py-16 text-center text-slate-400">Preparando la imagen…</div>}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <button type="button" className={btn} disabled={!url} onClick={descargar}>⬇ Descargar</button>
+          <button type="button" className={btn} disabled={!url} onClick={copiar}>📋 Copiar</button>
+          <button type="button" className={btn + ' !bg-emerald-600/80 !border-emerald-400'} disabled={!url} onClick={compartir}>📤 Compartir</button>
+        </div>
+        {msg && <div className="text-sm text-emerald-300 text-center">{msg}</div>}
+        <p className="text-xs text-slate-500 text-center">Envía esta imagen al grupo para que los jugadores vean {todas ? 'las figuras que se juegan' : 'la figura que se juega'}.</p>
+      </div>
+    </div>
+  );
+}
+
 function SorteoDrawPanel({ sorteoId, onClose }) {
+  const [figuraGrande, setFiguraGrande] = useState(null); // patron de la figura que se ve en grande (imagen para el grupo) o '__todas'
   const [sorteo, setSorteo] = useState(null);
   const [patrones, setPatrones] = useState([]);
   useEffect(() => { apiFetch('/sorteos/patrones').then((d) => setPatrones(d.patrones)); }, []);
@@ -2874,10 +3107,16 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
         </div>
       )}
 
+            {figuraGrande && <FiguraGrandeModal figuras={sorteo.figuras} inicial={figuraGrande} sorteo={sorteo} onClose={() => setFiguraGrande(null)} />}
             <Card className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-rose-100">Figuras del Sorteo</h3>
-          {!editandoFiguras && <Button variant="ghost" onClick={iniciarEdicionFiguras}>✏️ Editar figuras</Button>}
+          {!editandoFiguras && (
+            <div className="flex flex-wrap items-center gap-2">
+              {(sorteo.figuras || []).length > 1 && <Button variant="ghost" onClick={() => setFiguraGrande('__todas')} title="Todas las figuras juntas en una sola imagen para enviarla al grupo">🧩 Todas en una imagen</Button>}
+              <Button variant="ghost" onClick={iniciarEdicionFiguras}>✏️ Editar figuras</Button>
+            </div>
+          )}
         </div>
         {!editandoFiguras ? (
           (sorteo.figuras || []).map((f) => (
@@ -2885,6 +3124,7 @@ function SorteoDrawPanel({ sorteoId, onClose }) {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm">{f.label}</span>
+                  <button type="button" onClick={() => setFiguraGrande(f.patron)} title="Ver la figura en grande para enviarla al grupo" className="text-xs px-2 py-0.5 rounded-lg border border-slate-500 text-slate-200 hover:bg-slate-700/60 transition">🖼️ Ver grande</button>
                   <span className="text-xs text-slate-400">
                     {sorteo.modo_premio === 'sin_premio' ? '(sin monto definido)' : `(${sorteo.modo_premio === 'monto_fijo' ? 'monto fijo' : `${f.porcentaje}%`} · ${money(f.premio)})`}
                   </span>
